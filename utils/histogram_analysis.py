@@ -10,6 +10,7 @@ from skimage import measure
 
 def get_bins(all_curvatures, num_bins=50):
     """
+    compute bin edges & centers for histograms
     """
     max_curvature = np.amax(all_curvatures)
     min_curvature = np.amin(all_curvatures)

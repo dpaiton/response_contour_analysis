@@ -96,7 +96,7 @@ def plot_group_iso_contours(analysis_dict, num_levels, show_contours=True, text_
                 vmin=vmin, vmax=vmax, cmap=cmap, marker="s", alpha=1.0, c=norm_activity, s=30.0)
         contour_handles.append(contsf)
         # plot target neuron arrow & label
-        proj_target = analysis_dict["contour_dataset"]["proj_target_neuron"][neuron_index][orth_index]
+        proj_target = analysis_dict["contour_dataset"]["proj_target_vect"][neuron_index][orth_index]
         target_vector_x = proj_target[0].item()
         target_vector_y = proj_target[1].item()
         curve_axes[-1].arrow(0, 0, target_vector_x, target_vector_y,
@@ -108,7 +108,7 @@ def plot_group_iso_contours(analysis_dict, num_levels, show_contours=True, text_
             target_vector_y+(tenth_range_shift*phi_k_text_y_offset),
             r"$\Phi_{k}$", horizontalalignment='center', verticalalignment='center')
         # plot comparison neuron arrow & label
-        proj_comparison = analysis_dict["contour_dataset"]["proj_comparison_neuron"][neuron_index][orth_index]
+        proj_comparison = analysis_dict["contour_dataset"]["proj_comparison_vect"][neuron_index][orth_index]
         comparison_vector_x = proj_comparison[0].item()
         comparison_vector_y = proj_comparison[1].item()
         curve_axes[-1].arrow(0, 0, comparison_vector_x, comparison_vector_y,
