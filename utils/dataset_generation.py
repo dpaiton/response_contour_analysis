@@ -47,7 +47,7 @@ def find_orth_vect(matrix):
     """
     Given an orthonormal matrix, find a new unit vector that is orthogonal
     Parameters:
-        matrix [np.ndarray] matrix of shape [num_vectors, vector_length] whose columns are each orthonormal row vectors
+        matrix [np.ndarray] matrix of shape [num_vectors, vector_length] whose columns are each orthonormal vectors
     Outputs:
         orth_vect [np.ndarray] unit vector of shape [vector_length,] that is orthogonal to
             all of the vectors in the input matrix
