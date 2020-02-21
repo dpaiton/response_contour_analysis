@@ -153,15 +153,22 @@ def plot_group_iso_contours(analysis_dict, num_levels, show_contours=True, text_
 def plot_curvature_histograms(hist_list, label_list, color_list, bin_centers, title, xlabel,
                               text_width=200, width_ratio=1.0, dpi=100):
     """
-    hists_and_bins = ((iso_comp_hist, iso_rand_hist), (attn_comp_hist, attn_rand_hist), (iso_bin_edges, attn_bin_edges))
-    iso_hist_list = [[hists_and_bins[0][0]], [hists_and_bins[0][1]]]
-    iso_hist_list = [[iso_comp_hist], [hists_and_bins[0][1]]]
-    attn_hist_list = [[hists_and_bins[1][0]], [hists_and_bins[1][1]]]
-    hist_list = [iso_hist_list, attn_hist_list]
+    hist_list [nested list of floats] containing histogram values that is indexed by
+        [curvature type]
+        [dataset type]
+        [target neuron id]
+        [num_bins - 1]
+    label_list [nested list of strings] containing labels that shares its structure with hist_list
+    color_list [nested list of strings] containing color hash values that shares its structure with hist_list
+    bin_centers [nested list of floats] containing bin center values that is indexed by
+        [curvature type]
+        [num_bins]
+    title [string]
+    xlabel [string]
     """
     gs0_wspace = 0.5
     hspace_hist = 0.7
-    wspace_hist = 0.08
+    wspace_hist = 0.10
     num_y_plots = 1
     num_x_plots = 1
     fig = plt.figure(figsize=set_size(text_width, width_ratio, [num_y_plots, num_x_plots]), dpi=dpi)
@@ -170,7 +177,6 @@ def plot_curvature_histograms(hist_list, label_list, color_list, bin_centers, ti
     num_hist_x_plots = 2
     gs_hist = gridspec.GridSpecFromSubplotSpec(num_hist_y_plots, num_hist_x_plots, gs_base[0],
         hspace=hspace_hist, wspace=wspace_hist)
-    all_x_lists = zip(hist_list, label_list, color_list, bin_centers, title)
     orig_ax = fig.add_subplot(gs_hist[0,0])
     axes = []
     for sub_plt_y in range(0, num_hist_y_plots):
@@ -180,17 +186,18 @@ def plot_curvature_histograms(hist_list, label_list, color_list, bin_centers, ti
                 axes[sub_plt_y].append(orig_ax)
             else:
                 axes[sub_plt_y].append(fig.add_subplot(gs_hist[sub_plt_y, sub_plt_x], sharey=orig_ax))
-    for axis_x, (sub_hist, sub_label, sub_color, sub_bins, sub_title) in enumerate(all_x_lists):
+    all_x_lists = zip(hist_list, label_list, color_list, bin_centers, title)
+    for axis_x, (type_hist, sub_label, sub_color, sub_bins, sub_title) in enumerate(all_x_lists):
         max_hist_val = 0.001
         min_hist_val = 100
-        all_y_lists = zip(sub_hist, sub_label, sub_color, xlabel)
-        for axis_y, (axis_hists, axis_labels, axis_colors, sub_xlabel) in enumerate(all_y_lists):
+        all_y_lists = zip(type_hist, sub_label, sub_color, xlabel)
+        for axis_y, (dataset_hist, axis_labels, axis_colors, sub_xlabel) in enumerate(all_y_lists):
             axes[axis_y][axis_x].spines["top"].set_visible(False)
             axes[axis_y][axis_x].spines["right"].set_visible(False)
             axes[axis_y][axis_x].set_xticks(sub_bins, minor=True)
             axes[axis_y][axis_x].set_xticks(sub_bins[::int(len(sub_bins)/4)], minor=False)
             axes[axis_y][axis_x].xaxis.set_major_formatter(plticker.FormatStrFormatter("%0.3f"))
-            for hist, label, color in zip(axis_hists, axis_labels, axis_colors):
+            for hist, label, color in zip(dataset_hist, axis_labels, axis_colors):
                 axes[axis_y][axis_x].plot(sub_bins, hist, color=color, linestyle="-",
                     drawstyle="steps-mid", label=label)
                 axes[axis_y][axis_x].set_yscale('log')
