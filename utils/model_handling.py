@@ -6,43 +6,11 @@ Authors: Santiago Cadena, Dylan Paiton
 
 import numpy as np
 
-
-def get_activations(model, images):
-    """
-    Returns the activations from a model for given input images
-    Parameters:
-        model:  an object from the ConvNet class
-        images: an array with NumImages x W x H
-    Returns:
-        activations: a vector of length #neurons
-    """
-    if len(images.shape) == 3:
-        images = images[:, :, :, np.newaxis]
-    activations = model.prediction.eval(session=model.session,
-        feed_dict={model.images: images, model.is_training: False})
-    return activations
-
-
-def get_activations_cell(model, images, neuron):
-    """
-    Returns the activations from a model for given input images
-    Parameters:
-        model:  an object from the ConvNet class
-        images: an array with NumImages x W x H
-        neuron: int that points to the neuron index
-    Returns:
-        activations: a vector of length #neurons
-    """
-    if len(images.shape) == 3:
-        images = images[:, :, :, np.newaxis]
-    activations = model.prediction[:, neuron].eval(session=model.session,
-        feed_dict={model.images: images, model.is_training: False})
-    return activations
-
-def get_normalized_activations(model, target_neuron_ids, contour_dataset):
+def get_normalized_activations(model, target_neuron_ids, contour_dataset, get_activation_function):
     """
     contour_dataset should have shape [num_target_neurons][num_comparisons_per_target][num_datapoints, datapoint_length]
     Parameters:
+        get_activation_function [python function] which can be called to get the activations from a model for a given input image
     Returns:
         ndarray with shape [num_target_neurons, num_comparisons_per_target, num_datapoints_x, num_datapoints_y]
     TODO: allow for batch size specification
@@ -52,7 +20,7 @@ def get_normalized_activations(model, target_neuron_ids, contour_dataset):
         activity_sub_list = []
         for comparison_index, datapoints in enumerate(contour_dataset[target_index]):
             num_images = datapoints.shape[0]
-            activations = get_activations_cell(model, datapoints, neuron_index)
+            activations = get_activation_function(model, datapoints, neuron_index)
             activity_max = np.amax(np.abs(activations))
             activations = activations / (activity_max + 0.00001)
             activations = activations.reshape(int(np.sqrt(num_images)), int(np.sqrt(num_images)))
