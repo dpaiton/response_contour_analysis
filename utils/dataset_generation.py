@@ -7,6 +7,20 @@ Authors: Dylan Paiton, Santiago Cadena
 import numpy as np
 
 
+def normalize_vector(vector):
+    """
+    ensure input is a vector, and then divide it by its l2 norm.
+    Parameters:
+        vector [ np.ndarray] vector with shape [vector_length,].
+            It can also be a square image, which will first be vectorized
+    Outputs:
+        vector [np.ndarray] vector with shape [vector_length,] and l2-norm = 1
+    """
+    vector = vector.reshape(vector.size)
+    vector = vector / np.linalg.norm(vector)
+    return vector
+
+
 def gram_schmidt(target_vector, comp_vector):
     """
     Perform a single step of the Gram-Schmidt process 
@@ -17,8 +31,8 @@ def gram_schmidt(target_vector, comp_vector):
     Outputs:
         orth_norm [np.ndarray] column vector with shape [vector_length,] that is orthogonal to target_vector and has unit norm
     """
-    t_norm = np.squeeze((target_vector / np.linalg.norm(target_vector)))
-    c_norm = np.squeeze((comp_vector / np.linalg.norm(comp_vector)))
+    t_norm = np.squeeze(normalize_vector(target_vector))
+    c_norm = np.squeeze(normalize_vector(comp_vector))
     orth_vector = c_norm - np.dot(c_norm[:,None].T, t_norm[:,None]) * t_norm # column vector
     orth_norm = np.squeeze((orth_vector / np.linalg.norm(orth_vector)).T)
     return orth_norm
@@ -57,7 +71,7 @@ def find_orth_vect(matrix):
     candidate_vect = np.zeros(matrix.shape[0]+1)
     candidate_vect[-1] = 1
     orth_vect = np.linalg.lstsq(new_matrix, candidate_vect, rcond=None)[0] # [0] indexes lst-sqrs solution
-    orth_vect = np.squeeze(orth_vect / np.linalg.norm(orth_vect))
+    orth_vect = np.squeeze(normalize_vector(orth_vect))
     return orth_vect
 
 
@@ -92,7 +106,7 @@ def get_rand_target_neuron_ids(num_target_ids, num_neurons):
     return list(np.random.choice(range(num_neurons), num_target_ids, replace=False))
 
 
-def compute_rand_iso_vectors(target_vectors, num_comparisons=1):
+def compute_rand_vectors(target_vectors, num_comparisons=1):
     """
     Calculate all random orthogonal vectors for a selection of target vectors
     Parameters:
@@ -109,7 +123,7 @@ def compute_rand_iso_vectors(target_vectors, num_comparisons=1):
     rand_orth_vectors = []
     for target_vector in target_vectors:
         target_vector = target_vector.reshape(target_vector.size) # shape is [vector_length,]
-        norm_target_vectors.append(target_vector / np.linalg.norm(target_vector))
+        norm_target_vectors.append(normalize_vector(target_vector))
         rand_orth_vectors.append(get_rand_orth_vectors(target_vector, num_comparisons))
     return (norm_target_vectors, rand_orth_vectors)
 
@@ -133,7 +147,7 @@ def get_vector_angles(list_of_vectors):
     for angleid, (nid0, nid1) in enumerate(zip(*indices)):
         vec0 = list_of_vectors[nid0].reshape((vector_length, 1))
         vec1 = list_of_vectors[nid1].reshape((vector_length, 1))
-        inner_products = np.dot((vec0 / np.linalg.norm(vec0)).T, (vec1 / np.linalg.norm(vec1)))
+        inner_products = np.dot((normalize_vector(vec0)).T, (normalize_vector(vec1)))
         inner_products[inner_products>1.0] = 1.0
         inner_products[inner_products<-1.0] = -1.0
         angle = np.arccos(inner_products)
@@ -143,46 +157,43 @@ def get_vector_angles(list_of_vectors):
     return vect_angles, angle_matrix
 
 
-def compute_comp_iso_vectors(all_target_vectors, target_neuron_ids, min_angle=5, num_comparisons=1):
+def compute_comp_vectors(all_vectors, target_vector_ids, min_angle=5, num_comparisons=1):
     """
     For each target neuron, build dataset of selected orthogonal vectors
-        We first select a comparison vector from all_target_vectors that has the smallest inner-angle
+        We first select a comparison vector from all_vectors that has the smallest inner-angle
         onto a given target vector. Orthogonal vectors are selected such that the defined plane has a
         maximal inner-product with both the target vector and the comparison  vector.
     Parameters:
-        all_target_vectors [list] list of target_vector candidates
+        all_vectors [list] list of target_vector candidates
             (e.g. maximally activating images for neurons)
-        target_neuron_ids [list] list of ints for indexing all_target_vectors
+        target_vector_ids [list] list of ints for indexing all_vectors
         min_angle [float] minimum allowable angle for comparison vectors
         num_comparisons [int] number of comparison planes to use for each target neuron
     Outputs:
-        comparison_neuron_ids [list of list] [num_targets][num_comparisons_per_target]
+        comparison_vector_ids [list of list] [num_targets][num_comparisons_per_target]
         normed_target_vectors [list] of normalized vectors to be used for data generation
         comparison_vectors [list of np.ndarrays] each element in the list (one for each target vector) contains
             a matrix of non-random orthogonal (to each other & to the target vector) & normalized vectors
             with shape [num_comparisons, vector_length]. The vectors are computed from other entries in
-            all_target_vectors using the Gram-Schmidt process.
-    TODO: Should extra_indices be 1) random orth vectors, 2) random vectors selected from all_target_vectors, 3) left as-is, or 4) parameterized to select 1-3
+            all_vectors using the Gram-Schmidt process.
+    TODO: Should extra_indices be 1) random orth vectors, 2) random vectors selected from all_vectors, 3) left as-is, or 4) parameterized to select 1-3
     """
-    num_target_vectors = len(all_target_vectors)
-    vector_length = all_target_vectors[0].size
+    num_target_vectors = len(all_vectors)
+    vector_length = all_vectors[0].size
     # angle_matrix is a [num_target_vectors, num_target_vectors] ndarray that
     # gives the angle between all pairs of target vectors
-    angle_matrix = get_vector_angles(all_target_vectors)[1]
+    angle_matrix = get_vector_angles(all_vectors)[1]
     num_below_min = np.count_nonzero(angle_matrix<min_angle) # many angles are -1 or 0
     # sorted_angle_indices is an [N, 2] ndarray,
     # where N = num_target_vectors**2 - num_below_min and '2' indexes each axis of angle_matrix
     sorted_angle_indices = np.stack(np.unravel_index(np.argsort(angle_matrix.ravel()),
         angle_matrix.shape), axis=1)[num_below_min:, :]
     # Compute indices of comparison vectors for each target vector
-    comparison_neuron_ids = [] # list of lists [num_targets][num_comparisons_per_target]
+    comparison_vector_ids = [] # list of lists [num_targets][num_comparisons_per_target]
     normed_target_vectors = []
     comparison_vectors = []
-    for target_neuron_id in target_neuron_ids:
-        target_vector = all_target_vectors[target_neuron_id]
-        # Reshape & rescale target vector
-        target_vector = target_vector.reshape(target_vector.size)
-        target_vector = target_vector / np.linalg.norm(target_vector)
+    for target_neuron_id in target_vector_ids:
+        target_vector = normalize_vector(all_vectors[target_neuron_id])
         normed_target_vectors.append(target_vector)
         target_neuron_locs = np.argwhere(sorted_angle_indices[:, 0] == target_neuron_id)
         # high_angle_neuron_ids gives the indices of all neurons that have a high angle (above min_angle) with the target neuron
@@ -195,25 +206,61 @@ def compute_comp_iso_vectors(all_target_vectors, target_neuron_ids, min_angle=5,
                     extra_indices.append(index)
         if len(extra_indices) > 0:
             try:
-                sub_comparison_neuron_ids = np.concatenate((np.atleast_1d(high_angle_neuron_ids),
+                sub_comparison_vector_ids = np.concatenate((np.atleast_1d(high_angle_neuron_ids),
                     np.array(extra_indices)))
             except:
               print("ERROR:iso_response_analysis: concatenation failed - likely one of the arrays is size 0")
               import IPython; IPython.embed(); raise SystemExit
         else:
-            sub_comparison_neuron_ids = high_angle_neuron_ids
-        sub_comparison_neuron_ids = sub_comparison_neuron_ids[:num_comparisons]
+            sub_comparison_vector_ids = high_angle_neuron_ids
+        sub_comparison_vector_ids = sub_comparison_vector_ids[:num_comparisons]
         # Build out matrix of comparison vectors from the computed IDs
         comparison_vector_matrix = target_vector.T[:,None] # matrix of alternate vectors
-        for comparison_neuron_id in sub_comparison_neuron_ids:
-            if(comparison_neuron_id != target_neuron_id):
-                comparison_vector = all_target_vectors[comparison_neuron_id]
-                comparison_vector = comparison_vector.reshape(vector_length)
-                comparison_vector = np.squeeze((comparison_vector / np.linalg.norm(comparison_vector)).T)
+        for comparison_vector_id in sub_comparison_vector_ids:
+            if(comparison_vector_id != target_neuron_id):
+                comparison_vector = np.squeeze(normalize_vector(all_vectors[comparison_vector_id]).T)
                 comparison_vector_matrix = np.append(comparison_vector_matrix, comparison_vector[:,None], axis=1)
-        comparison_neuron_ids.append(sub_comparison_neuron_ids)
+        comparison_vector_ids.append(sub_comparison_vector_ids)
         comparison_vectors.append(comparison_vector_matrix.T[1:,:])
-    return (comparison_neuron_ids, normed_target_vectors, comparison_vectors)
+    return (comparison_vector_ids, normed_target_vectors, comparison_vectors)
+
+
+def compute_specified_vectors(all_vectors, target_vector_ids, comparison_vector_ids):
+    """
+    For each target neuron, build dataset of selected orthogonal vectors
+        We first select a comparison vector from all_vectors that has the smallest inner-angle
+        onto a given target vector. Orthogonal vectors are selected such that the defined plane has a
+        maximal inner-product with both the target vector and the comparison  vector.
+    Parameters:
+        all_vectors [list] list of target_vector candidates
+            (e.g. maximally activating images for neurons)
+        target_vector_ids [list] list of ints for indexing all_vectors
+        comparison_vector_ids [list of list] [num_targets][num_comparisons_per_target] list of ints for indexing all_vectors
+    Outputs:
+        normed_target_vectors [list] of normalized vectors to be used for data generation
+        comparison_vectors [list of np.ndarrays] each element in the list (one for each target vector) contains
+            a matrix of non-random orthogonal (to each other & to the target vector) & normalized vectors
+            with shape [num_comparisons, vector_length]. The vectors are computed from other entries in
+            all_vectors using the Gram-Schmidt process.
+    """
+    num_target_vectors = len(all_vectors)
+    vector_length = all_vectors[0].size
+    normed_target_vectors = []
+    comparison_vectors = []
+    for target_neuron_id in target_vector_ids:
+        target_vector = normalize_vector(all_vectors[target_neuron_id])
+        normed_target_vectors.append(target_vector)
+        # Build out matrix of comparison vectors from the computed IDs
+        comparison_vector_matrix = target_vector.T[:,None] # matrix of alternate vectors
+        for comparison_vector_id in comparison_vector_ids:
+            if(comparison_vector_id != target_neuron_id):
+                comparison_vector = all_vectors[comparison_vector_id]
+                comparison_vector = np.squeeze(normalize_vector(comparison_vector).T)
+                comparison_vector_matrix = np.append(comparison_vector_matrix, comparison_vector[:,None], axis=1)
+            else:
+                assert False, ("Comparison vector ID cannot equal target vector ID")
+        comparison_vectors.append(comparison_vector_matrix.T[1:,:])
+    return (normed_target_vectors, comparison_vectors)
 
 
 def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, num_images, image_scale=1):
