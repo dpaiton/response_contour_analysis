@@ -23,7 +23,7 @@ def normalize_vector(vector):
 
 def gram_schmidt(target_vector, comp_vector):
     """
-    Perform a single step of the Gram-Schmidt process 
+    Perform a single step of the Gram-Schmidt process
         https://en.wikipedia.org/wiki/Gram-Schmidt_process
     Parameters:
         target_vector [np.ndarray] vector with shape [vector_length,]
@@ -36,6 +36,35 @@ def gram_schmidt(target_vector, comp_vector):
     orth_vector = c_norm - np.dot(c_norm[:,None].T, t_norm[:,None]) * t_norm # column vector
     orth_norm = np.squeeze((orth_vector / np.linalg.norm(orth_vector)).T)
     return orth_norm
+
+
+def get_vector_angles(list_of_vectors):
+    """
+    Compute the angle in degrees between all pairs of vectors
+    Parameters:
+        list_of_vectors [list] list of vectors (e.g. images) to compute the angle bewteen
+    Outputs:
+        vect_angles [np.ndarray] lower triangle of plot matrix only, as a vector in raster order
+        angle_matrix [np.ndarray] of shape [num_vectors, num_vectors] with all angles between
+            basis functions in the lower triangle and upper triangle is set to -1
+    """
+    num_vectors = len(list_of_vectors)
+    vector_length = list_of_vectors[0].size
+    indices = np.tril_indices(num_vectors, 1)
+    vect_size = len(indices[0])
+    vect_angles = np.zeros(vect_size)
+    angle_matrix = np.zeros((num_vectors, num_vectors))
+    for angleid, (nid0, nid1) in enumerate(zip(*indices)):
+        vec0 = normalize_vector(list_of_vectors[nid0]).reshape((vector_length, 1))
+        vec1 = normalize_vector(list_of_vectors[nid1]).reshape((vector_length, 1))
+        inner_products = np.dot(vec0.T, vec1)
+        inner_products[inner_products>1.0] = 1.0
+        inner_products[inner_products<-1.0] = -1.0
+        angle = np.arccos(inner_products)
+        vect_angles[angleid] = angle * (180 / np.pi)
+        angle_matrix[nid0, nid1] = angle * (180 / np.pi)
+    angle_matrix[angle_matrix==0] = -1
+    return vect_angles, angle_matrix
 
 
 def get_proj_matrix(target_vector, comp_vector, comp_is_orth=False):
@@ -128,35 +157,6 @@ def compute_rand_vectors(target_vectors, num_comparisons=1):
     return (norm_target_vectors, rand_orth_vectors)
 
 
-def get_vector_angles(list_of_vectors):
-    """
-    Compute the angle in degrees between all pairs of vectors
-    Parameters:
-        list_of_vectors [list] list of vectors (e.g. images) to compute the angle bewteen
-    Outputs:
-        vect_angles [np.ndarray] lower triangle of plot matrix only, as a vector in raster order
-        angle_matrix [np.ndarray] of shape [num_vectors, num_vectors] with all angles between
-            basis functions in the lower triangle and upper triangle is set to -1
-    """
-    num_vectors = len(list_of_vectors)
-    vector_length = list_of_vectors[0].size
-    indices = np.tril_indices(num_vectors, 1)
-    vect_size = len(indices[0])
-    vect_angles = np.zeros(vect_size)
-    angle_matrix = np.zeros((num_vectors, num_vectors))
-    for angleid, (nid0, nid1) in enumerate(zip(*indices)):
-        vec0 = list_of_vectors[nid0].reshape((vector_length, 1))
-        vec1 = list_of_vectors[nid1].reshape((vector_length, 1))
-        inner_products = np.dot((normalize_vector(vec0)).T, (normalize_vector(vec1)))
-        inner_products[inner_products>1.0] = 1.0
-        inner_products[inner_products<-1.0] = -1.0
-        angle = np.arccos(inner_products)
-        vect_angles[angleid] = angle * (180 / np.pi)
-        angle_matrix[nid0, nid1] = angle * (180 / np.pi)
-    angle_matrix[angle_matrix==0] = -1
-    return vect_angles, angle_matrix
-
-
 def compute_comp_vectors(all_vectors, target_vector_ids, min_angle=5, num_comparisons=1):
     """
     For each target neuron, build dataset of selected orthogonal vectors
@@ -247,16 +247,17 @@ def compute_specified_vectors(all_vectors, target_vector_ids, comparison_vector_
     vector_length = all_vectors[0].size
     normed_target_vectors = []
     comparison_vectors = []
-    for target_neuron_id in target_vector_ids:
+    for target_index, target_neuron_id in enumerate(target_vector_ids):
         target_vector = normalize_vector(all_vectors[target_neuron_id])
         normed_target_vectors.append(target_vector)
         # Build out matrix of comparison vectors from the computed IDs
-        comparison_vector_matrix = target_vector.T[:,None] # matrix of alternate vectors
-        for comparison_vector_id in comparison_vector_ids:
+        comparison_vector_matrix = target_vector.T[:, None] # matrix of alternate vectors
+        for comparison_vector_id in comparison_vector_ids[target_index]:
             if(comparison_vector_id != target_neuron_id):
                 comparison_vector = all_vectors[comparison_vector_id]
                 comparison_vector = np.squeeze(normalize_vector(comparison_vector).T)
-                comparison_vector_matrix = np.append(comparison_vector_matrix, comparison_vector[:,None], axis=1)
+                comparison_vector_matrix = np.append(comparison_vector_matrix,
+                    comparison_vector[:,None], axis=1)
             else:
                 assert False, ("Comparison vector ID cannot equal target vector ID")
         comparison_vectors.append(comparison_vector_matrix.T[1:,:])
