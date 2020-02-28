@@ -58,8 +58,7 @@ def get_vector_angles(list_of_vectors):
         vec0 = normalize_vector(list_of_vectors[nid0]).reshape((vector_length, 1))
         vec1 = normalize_vector(list_of_vectors[nid1]).reshape((vector_length, 1))
         inner_products = np.dot(vec0.T, vec1)
-        inner_products[inner_products>1.0] = 1.0
-        inner_products[inner_products<-1.0] = -1.0
+        inner_products = np.clip(inner_products, -1.0, 1.0)
         angle = np.arccos(inner_products)
         vect_angles[angleid] = angle * (180 / np.pi)
         angle_matrix[nid0, nid1] = angle * (180 / np.pi)
