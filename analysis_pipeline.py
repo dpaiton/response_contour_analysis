@@ -33,7 +33,7 @@ experiment_params['x_range'] = (-2.0, 2.0)
 experiment_params['y_range'] = (-2.0, 2.0)
 experiment_params['num_images'] = int(30**2)
 experiment_params['image_scale'] = 12
-experiment_params['target_activity'] = 0.75
+experiment_params['target_activity'] = 0.5
 experiment_params['output_directory'] = parent_path+'/iso_analysis/'
 experiment_params['save_prefix'] = 'santi_'
 
@@ -49,13 +49,16 @@ def get_curvatures_from_target_comparison_vectors(model, target_vectors, compari
     )
     num_neurons = len(target_vectors)
     num_planes = len(comparison_vectors)
-    num_batches = int(np.ceil(kwargs['num_images'] / kwargs['batch_size']))
+    num_edge_images = int(np.sqrt(kwargs['num_images']))
+    response_images = np.zeros((num_neurons, num_planes, num_edge_images, num_edge_images))
     all_iso_curvatures = []
     all_attn_curvatures = []
+    all_mei_lengths = []
     for target_index, target_proj_matrix in enumerate(contour_dataset['proj_matrix']):
+        sub_mei_lengths = []
         sub_iso_curvatures = []
         sub_attn_curvatures = []
-        for proj_matrix in target_proj_matrix:
+        for plane_index, proj_matrix in enumerate(target_proj_matrix): # 1 plane at a time
             datapoints = iso_data.inject_data(proj_matrix, contour_dataset['proj_datapoints'],
                 kwargs['image_scale'])
             activations = model_funcs.get_normalized_activations(
@@ -64,19 +67,31 @@ def get_curvatures_from_target_comparison_vectors(model, target_vectors, compari
                 [[datapoints]],
                 act_func
             )
+            response_images[target_index, plane_index, ...] = np.squeeze(activations)
             iso_curvatures, attn_curvatures = hist_funcs.compute_curvature_poly_fits(
                 activations,
                 contour_dataset,
                 kwargs['target_activity'],
-                measure_upper_right=False
+                measure_loc='right'
+                #measure_upper_right=False
             )
+            ## Add code to measure mei length
+            #mei = kwargs['mei']
+            # mei_lengths = get_mei_lengths(mei, proj_matrix)
+            #     -- normalize mei
+            #     -- project mei using proj_matrix
+            mei_lengths = None
+            sub_mei_lengths.append(mei_lengths)
             sub_iso_curvatures.append(iso_curvatures[0][0])
             sub_attn_curvatures.append(attn_curvatures[0][0])
+        all_mei_lengths.append(sub_mei_lengths)
         all_iso_curvatures.append(sub_iso_curvatures)
         all_attn_curvatures.append(sub_attn_curvatures)
     out_dict = {
+        'mei_lengths':all_mei_lengths,
         'contour_dataset':contour_dataset,
         'iso_curvatures':all_iso_curvatures,
+        'response_images': response_images,
         'attn_curvatures':all_attn_curvatures
     }
     return out_dict
@@ -92,6 +107,7 @@ def get_curvatures_from_exciting_vectors(model, exciting_vectors, act_func, kwar
     comparison_vector_ids = iso_vectors[0]
     target_vectors = iso_vectors[1]
     comparison_vectors = iso_vectors[2]
+    kwargs['mei'] = exciting_vectors
     out_dict = get_curvatures_from_target_comparison_vectors(
         model,
         target_vectors,
@@ -99,14 +115,14 @@ def get_curvatures_from_exciting_vectors(model, exciting_vectors, act_func, kwar
         act_func,
         kwargs
     )
-    out_dict['comparison_vecttor_ids'] = comparison_vector_ids
+    out_dict['comparison_vector_ids'] = comparison_vector_ids
     out_dict['target_vectors'] = target_vectors
     out_dict['comparison_vectors'] = comparison_vectors
     return out_dict
 
 if not os.path.exists(experiment_params['output_directory']):
     os.makedirs(experiment_params['output_directory'])
-np.savez(experiment_params['output_directory']+experiment_params['save_prefix']+'stim_params.npz',
+np.savez(experiment_params['output_directory']+experiment_params['save_prefix']+'meis_params.npz',
     data=experiment_params)
 
 model = santi_utils.load_model()
