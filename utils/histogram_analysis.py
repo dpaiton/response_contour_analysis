@@ -68,7 +68,8 @@ def iso_response_curvature_poly_fits(activations, target_act, xy_scale=[1, 1], m
                 activity = activity / activity.max()
                 
                 try: # compute curvature
-                    contours = measure.find_contours(activity, target_act)[-1] # if multiple contours are found, use the right-most
+                    #contours = measure.find_contours(activity, target_act)[-1] # if multiple contours are found, use the right-most
+                    contours = measure.find_contours(activity, target_act)
                     contours = np.concatenate(contours, axis=0) # Grab all of them together
                 except:
                     print('ERROR: iso_response_curvature_poly_fits: Unable to find iso-response contours...')
