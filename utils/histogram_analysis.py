@@ -9,20 +9,12 @@ import numpy.polynomial.polynomial as poly
 from skimage import measure
 
 
-def iso_response_curvature_poly_fits(activations, target_act, xy_scale=[1, 1], measure_loc='all'):
+def iso_response_curvature_poly_fits(activations, target_act, yx_scale=[1, 1]):
     """
     Parameters:
         activations [np.ndarray] first index is the target neuron, second index is the data plane
         target_act [float] target activity for finding iso-response contours
-        xy_scale [list of ints] x and y (respectively) scale factors for remapping activations to the data domain
-        measure_loc [str] Choose location to measure iso-response contours
-            this assumes the original range of X and Y values were from -K to K for some integer, K
-            'all' -> (default) do not modify the activity map
-            'left' -> only measure contours left of the (x-) middle
-            'right' -> only measure contours right of the (x-) middle
-            'top' -> only measure contours above the (y-) middle
-            'bottom' -> only measure contours below the (y-) middle
-            'upperright' -> measure contours in the top right quadrant 
+        yx_scale [list of ints] y and x (respectively) scale factors for remapping activations to the data domain
     Outputs:
         curvatures [list of lists] of lengths [num_neurons][num_planes] which contain the estimated iso-response curvature coefficient for the given neuron and plane
         fits [list of lists] of lengths [num_neurons][num_planes] which contain the polyval line fits for the given computed coefficients
@@ -36,27 +28,11 @@ def iso_response_curvature_poly_fits(activations, target_act, xy_scale=[1, 1], m
         for plane_id in range(activations.shape[1]):
             activity = activations[neuron_id, plane_id, ...]
             if activity.max() > 0.0:
-                #if measure_upper_right: # mirror top half of activations to bottom half
-                #    activity[:int(num_y/2), :] = activity[int(num_y/2):, :][::-1, :] 
                 num_y, num_x = activity.shape
-                if measure_loc == 'left':
-                    #activity = activity[:, :num_x//2] # remove data for x>0
-                    activity[:, num_x//2:] = 0 # remove data for x>0
-                elif measure_loc == 'right':
-                    #activity = activity[:, num_x//2:] # remove data for x<0
-                    activity[:, :num_x//2] = 0 # remove data for x<0
-                elif measure_loc == 'top':
-                    #activity = activity[num_y//2:, ] # remove data for y<0
-                    activity[:num_y//2, ] = 0 # remove data for y<0
-                elif measure_loc == 'bottom':
-                    #activity = activity[:num_y//2, ] # remove data for y>0
-                    activity[num_y//2:, ] = 0 # remove data for y>0
-                elif measure_loc == 'upperright':
-                    #activity = activity[num_y//2:, num_x//2:] # remove data for y<0 & x<0
-                    activity = activity[:num_y//2, :num_x//2] = 0 # remove data for y<0 & x<0
+                activity[:, :num_x//2] = 0 # remove data for x<0
                 if np.abs(activity.max()) <= 1e-10:
                     print(
-                        f'WARNING: iso_response_curvature_poly_fits: After isolating {measure_loc},' 
+                        f'WARNING: iso_response_curvature_poly_fits: After isolating the right half,' 
                         +'maximum value of activations for '
                         +f'neuron_index={neuron_id}, comparison_index={plane_id}, is {activity.max}'
                     )
@@ -66,9 +42,7 @@ def iso_response_curvature_poly_fits(activations, target_act, xy_scale=[1, 1], m
                     continue
                 activity = activity - activity.min() # renormalize to be between 0 and 1
                 activity = activity / activity.max()
-                
                 try: # compute curvature
-                    #contours = measure.find_contours(activity, target_act)[-1] # if multiple contours are found, use the right-most
                     contours = measure.find_contours(activity, target_act)
                     contours = np.concatenate(contours, axis=0) # Grab all of them together
                 except:
@@ -76,31 +50,29 @@ def iso_response_curvature_poly_fits(activations, target_act, xy_scale=[1, 1], m
                     import IPython; IPython.embed(); raise SystemExit
                     
                 # Rescale contour location to actual data range
-                x_contour_pts = contours[:,1] * xy_scale[0] - (num_x * xy_scale[0] / 2)
-                y_contour_pts = contours[:,0] * xy_scale[1] - (num_y * xy_scale[1] / 2)
+                y_contour_pts = contours[:,0] * yx_scale[0] - (num_y * yx_scale[0] / 2)
+                x_contour_pts = contours[:,1] * yx_scale[1] - (num_x * yx_scale[1] / 2)
                 
-                # only use contour points for x > 0, which helps with circular contours
-                #x_pos = np.argwhere(x_contour_pts>0) 
-                #if x_pos.size > 10: # TODO: We shouldn't need this if/else. Need to investigate what is going on when x_pos.size == 0 or 1. It basically means there are only curves in the left half, which shouldn't happen?
-                #    x_contour_pts_half = np.squeeze(x_contour_pts[x_pos])
-                #    y_contour_pts_half = np.squeeze(y_contour_pts[x_pos])
-                #else:
-                #    x_contour_pts_half = x_contour_pts
-                #    y_contour_pts_half = y_contour_pts
-                x_contour_pts_half = x_contour_pts
-                y_contour_pts_half = y_contour_pts
+                # Don't use points that lie along the y axis, to fix edge artifacts
+                x_pos = np.argwhere(x_contour_pts>0) 
+                if x_pos.size > 3:
+                    y_contour_pts_proc = np.squeeze(y_contour_pts[x_pos])
+                    x_contour_pts_proc = np.squeeze(x_contour_pts[x_pos])
+                else:
+                    y_contour_pts_proc = y_contour_pts
+                    x_contour_pts_proc = x_contour_pts
                 
                 # polyfit assumes the convexity is up/down, while we will have left/right
                 # To get around this, we swap the x and y axis for the polyfit and then swap back
                 # polyfit returns [c0, c1, c2], where p = c0 + c1x + c2x^2
                 try:
-                    coeffs = poly.polyfit(x=y_contour_pts_half, y=x_contour_pts_half, deg=2) 
+                    coeffs = poly.polyfit(x=y_contour_pts_proc, y=x_contour_pts_proc, deg=2) 
                 except:
                     print('ERROR: iso_response_curvature-poly_fits: polyfit failed.')
                     import IPython; IPython.embed(); raise SystemExit
-                sub_contours.append((x_contour_pts, y_contour_pts))
+                sub_contours.append((x_contour_pts_proc, y_contour_pts_proc))
                 sub_curvatures.append(coeffs[-1])
-                sub_fits.append((poly.polyval(y_contour_pts_half, coeffs), y_contour_pts_half))
+                sub_fits.append((poly.polyval(y_contour_pts_proc, coeffs), y_contour_pts_proc))
             else:
                 print('WARNING: iso_response_curvature_poly_fits: Maximum value of activations for '
                     +f'neuron_index={neuron_id}, comparison_index={plane_id}, is {activity.max}')
@@ -157,7 +129,7 @@ def response_attenuation_curvature_poly_fits(activations, target_act, x_pts, y_p
     return (curvatures, fits, sliced_activity)
 
 
-def compute_curvature_poly_fits(activations, contour_dataset, target_act, measure_loc='all'):#, measure_upper_right=False):
+def compute_curvature_poly_fits(activations, contour_dataset, target_act, bounds=None):#, measure_upper_right=False):
     """
     Parameters:
         activations [np.ndarray] returned from get_normalized_activations
@@ -165,33 +137,43 @@ def compute_curvature_poly_fits(activations, contour_dataset, target_act, measur
           x_pts [np.ndarray] of size (num_images,) that were the points used for the contour dataset
           proj_datapoints [np.ndarray] of stacked vectorized datapoint locations (from a mesh grid) for the 2D contour dataset
         target_act [float] target activity for finding iso-response contours
-        measure_loc [str] Choose location to measure iso-response contours
-            this assumes the original range of X and Y values were from -K to K for some integer, K
-            'all' -> (default) do not modify the activity map
-            'left' -> only measure contours left of the (x-) middle
-            'right' -> only measure contours right of the (x-) middle
-            'top' -> only measure contours above the (y-) middle
-            'bottom' -> only measure contours below the (y-) middle
-            'upperright' -> measure contours in the top right quadrant 
-        measure_upper_right [bool] if True, only measure the curvature in the upper right quadrant of each (renormalized) activity map
+        bounds [nested tuple] containing ((y_min, y_max), (x_min, x_max)) for the window within which curvature should be measured
     outputs:
         iso_curvatures [list of lists] of lengths [num_neurons, num_planes] which contain the estimated iso-response curvature coefficient for the given neuron and plane
         attn_curvatures [list of lists] of lengths [num_neurons, num_planes] which contain the estimated response attenuation curvature coefficient for the given neuron and plane
     """
     num_target, num_planes, num_y, num_x = activations.shape 
-    x_pts, y_pts = (contour_dataset['x_pts'], contour_dataset['y_pts'])
-    x_range = max(x_pts) - min(x_pts)
+    yx_pts = (contour_dataset['y_pts'].copy(), contour_dataset['x_pts'].copy())
+    y_pts, x_pts = yx_pts
     y_range = max(y_pts) - min(y_pts)
-    x_scale_factor =  x_range / num_x
-    y_scale_factor =  y_range / num_y
+    x_range = max(x_pts) - min(x_pts)
+    if bounds is None: 
+        y_scale_factor =  y_range / num_y
+        x_scale_factor =  x_range / num_x
+    else: # assumes input is square, centered around origin, and the bounds are also centered
+        y_bounds, x_bounds = bounds
+        y_bound_range = max(y_bounds) - min(y_bounds)
+        x_bound_range = max(x_bounds) - min(x_bounds)
+        y_trim = 0.5 * y_bound_range / y_range
+        x_trim = 0.5 * x_bound_range / x_range
+        start_y = int(np.floor(y_trim*num_y))
+        end_y = int(np.ceil(3*y_trim*num_y))
+        start_x = int(np.floor(x_trim*num_x))
+        end_x = int(np.ceil(3*x_trim*num_x))
+        new_num_y = end_y - start_y
+        new_num_x = end_x - start_x
+        y_pts_trim = y_pts[start_y:end_y]
+        x_pts_trim = x_pts[start_x:end_x]
+        new_y_range = max(y_pts_trim) - min(y_pts_trim)
+        new_x_range = max(x_pts_trim) - min(x_pts_trim)
+        y_scale_factor =  new_y_range / new_num_y
+        x_scale_factor =  new_x_range / new_num_x
     iso_curvatures, iso_fits, iso_contours = iso_response_curvature_poly_fits(
-        activations,
+        activations[:, :, start_y:end_y, start_x:end_x],
         target_act,
-        [x_scale_factor, y_scale_factor],
-        measure_loc)
-        #measure_upper_right)
+        [y_scale_factor, x_scale_factor])
     attn_curvatures, attn_fits, attn_sliced_activity = response_attenuation_curvature_poly_fits(
-        activations,
+        activations[:, :, start_y:end_y, start_x:end_x],
         target_act,
         x_pts,
         y_pts)

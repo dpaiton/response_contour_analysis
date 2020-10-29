@@ -1,3 +1,7 @@
+# TODO:
+# we should have a function that makes the activity maps & separate that from the functions that do curve fits or whatever. Since the activity maps are the most time consuming part of the process.
+#
+
 import os
 import sys
 
@@ -34,8 +38,10 @@ experiment_params['y_range'] = (-2.0, 2.0)
 experiment_params['num_images'] = int(30**2)
 experiment_params['image_scale'] = 12
 experiment_params['target_activity'] = 0.5
+experiment_params['iso_window_bounds'] = ((-1, 1), (-1, 1))
+experiment_params['comp_method'] = 'closest'
 experiment_params['output_directory'] = parent_path+'/iso_analysis/'
-experiment_params['save_prefix'] = 'santi_'
+experiment_params['save_prefix'] = 'santi_windowed_'
 
 def get_curvatures_from_target_comparison_vectors(model, target_vectors, comparison_vectors, act_func, kwargs):
     contour_dataset, _ = iso_data.get_contour_dataset(
@@ -67,12 +73,15 @@ def get_curvatures_from_target_comparison_vectors(model, target_vectors, compari
                 [[datapoints]],
                 act_func
             )
-            response_images[target_index, plane_index, ...] = np.squeeze(activations)
+            response_images[target_index, plane_index, ...] = np.squeeze(activations).copy()
+            
+            
             iso_curvatures, attn_curvatures = hist_funcs.compute_curvature_poly_fits(
                 activations,
                 contour_dataset,
                 kwargs['target_activity'],
-                measure_loc='right'
+                bounds=kwargs['iso_window_bounds']
+                #measure_loc='right'
                 #measure_upper_right=False
             )
             ## Add code to measure mei length
@@ -102,7 +111,7 @@ def get_curvatures_from_exciting_vectors(model, exciting_vectors, act_func, kwar
         kwargs['target_neuron_ids'],
         kwargs['min_angle'],
         kwargs['num_comparisons'],
-        comp_method='closest'
+        comp_method=kwargs['comp_method']
     )
     comparison_vector_ids = iso_vectors[0]
     target_vectors = iso_vectors[1]
