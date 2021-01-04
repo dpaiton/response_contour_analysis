@@ -33,11 +33,13 @@ def get_bins(all_curvatures, num_bins=50):
     return bins
 
 
-def iso_response_curvature_poly_fits(activations, target_act):
+def iso_response_curvature_poly_fits(activations, target, target_is_act=True):
     """
     Parameters:
         activations [tuple] first element is the comp activations returned from get_normalized_activations and the secdond element is rand activations
-        target_act [float] target activity for finding iso-response contours
+        target [float] target activity for finding iso-response contours OR target position along x axis for finding the target activity
+            if target_is_act is false, then target refers to a position on the x axis from -1 (left most point) to 1 (right most point)
+        target_is_act [bool] if True, then the 'target' parameter is an activation value, else the 'target' parameter is the x axis position
     Outputs:
         curvatures [list of lists] of lengths [num_neurons, num_planes] which contain the estimated iso-response curvature coefficient for the given neuron and plane
         fits [list of lists] of lengths [num_neurons, num_planes] which contain the polyval line fits for the given computed coefficients
@@ -47,8 +49,13 @@ def iso_response_curvature_poly_fits(activations, target_act):
         sub_curvatures = []; sub_fits = []
         for plane_id in range(activations.shape[1]):
             activity = activations[neuron_id, plane_id, ...]
-            ## mirror top half of activations to only measure curvature in the upper right quadrant
             num_y, num_x = activity.shape
+            if target_is_act:
+                target_act = target
+            else:
+                target_pos = int(num_x * ((target + 1) / 2)) # map [-1, 1] to [0, num_x]
+                target_act = activity[0, target_pos]
+            ## mirror top half of activations to only measure curvature in the upper right quadrant
             activity[:int(num_y/2), :] = activity[int(num_y/2):, :][::-1, :]
             ## compute curvature
             contours = measure.find_contours(activity, target_act)[0]
