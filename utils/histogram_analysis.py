@@ -54,7 +54,7 @@ def iso_response_curvature_poly_fits(activations, target, target_is_act=True):
                 target_act = target
             else:
                 target_pos = int(num_x * ((target + 1) / 2)) # map [-1, 1] to [0, num_x]
-                target_act = activity[0, target_pos]
+                target_act = activity[num_y//2, target_pos]
             ## mirror top half of activations to only measure curvature in the upper right quadrant
             activity[:int(num_y/2), :] = activity[int(num_y/2):, :][::-1, :]
             ## compute curvature
