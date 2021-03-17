@@ -64,8 +64,8 @@ def plot_group_iso_contours(analysis_dict, num_levels, show_contours=True, targe
     phi_j_text_y_offset = 0.3 / width_fraction
     nu_text_x_offset = -0.56 / width_fraction
     nu_text_y_offset = 0.3 / width_fraction
-    num_plots_y = targets_comparisons[0]#analysis_dict['activations'].shape[0] # num target neurons
-    num_plots_x = targets_comparisons[1]#analysis_dict['activations'].shape[1] # num comparison planes
+    num_plots_y = targets_comparisons[0] # num target neurons
+    num_plots_x = targets_comparisons[1] # num comparison planes
     gs0 = gridspec.GridSpec(num_plots_y, num_plots_x, wspace=gs0_wspace, hspace=gs0_hspace)
     vmin = np.min(analysis_dict['activations'])
     vmax = np.max(analysis_dict['activations'])
@@ -225,3 +225,4 @@ def plot_curvature_histograms(hist_list, label_list, color_list, bin_centers, ti
         #axes[axis_y][axis_x].set_ylim([0, 1.0])
     plt.show()
     return fig
+

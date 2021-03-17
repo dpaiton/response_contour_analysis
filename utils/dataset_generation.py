@@ -36,11 +36,11 @@ def gram_schmidt(target_vector, comp_vector):
     if np.all(t_normed == c_normed):
         print('ERROR: From dataset_generation/gram_schmidt.py: input target vector and comp vector are equal and must be different.')
         import IPython; IPython.embed(); raise SystemExit
-    orth_vector = c_normed - np.dot(c_normed[:,None].T, t_normed[:,None]) * t_normed # column vector
+    orth_vector = c_normed - np.dot(c_normed[:, None].T, t_normed[:, None]) * t_normed # column vector
     orth_norm = np.linalg.norm(orth_vector)
     if orth_norm == 0:
         print('WARNING: From dataset_generation/gram_schmidt.py: norm of orthogonal vector is 0.')
-    orth_normed = np.squeeze((orth_vector / np.linalg.norm(orth_vector)).T)
+    orth_normed = np.squeeze((orth_vector / orth_norm).T)
     return orth_normed
 
 
@@ -257,7 +257,7 @@ def compute_comp_vectors(all_vectors, target_vector_ids, min_angle=5, num_compar
         else:
             assert False, (f'comp_method must be "closest" or "rand", not {comp_method}.')
         # Build out matrix of comparison vectors from the computed IDs
-        comparison_vector_matrix = target_vector.T[:,None] # matrix of alternate vectors
+        comparison_vector_matrix = target_vector.T[:, None] # matrix of alternate vectors
         for comparison_vector_id in sub_comparison_vector_ids:
             if(comparison_vector_id != target_neuron_id):
                 comparison_vector = np.squeeze(normalize_vector(all_vectors[comparison_vector_id]).T)
@@ -316,7 +316,7 @@ def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, nu
     """
     Parameters:
         target_vectors [list] of normalized target vectors
-        comparison_vectors [list] of normalized comparison vectors
+        comparison_vectors [list of lists] of normalized comparison vectors per target vector
         x_range [tuple] indicating (min, max) for x axis
         y_range [tuple] indicating (min, max) for y axis
         num_images [int] indicating how many images to compute from each plane. This must have an even square root.
@@ -332,6 +332,8 @@ def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, nu
             x_pts - linear interpolation between x_range[0] and x_range[1]
             y_pts - linear interpolation between y_range[0] and y_range[1]
         datapoints has shape [num_target_neurons][num_comparisons_per_target (or num_planes)][num_datapoints, datapoint_length]
+        
+    TODO: If comparison_vectors is not a list of lists then assume the same list is applied per target
     """
     x_pts = np.linspace(x_range[0], x_range[1], int(np.sqrt(num_images)))
     y_pts = np.linspace(y_range[0], y_range[1], int(np.sqrt(num_images)))
@@ -382,3 +384,4 @@ def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, nu
         out_dict['proj_orth_vect'].append(proj_orth_vect_sub_list)
         out_dict['proj_matrix'].append(proj_matrix_sub_list)
     return out_dict, all_datapoints
+
