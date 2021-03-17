@@ -9,11 +9,13 @@ import numpy.polynomial.polynomial as poly
 from skimage import measure
 
 
-def iso_response_curvature_poly_fits(activations, target_act, yx_scale=[1, 1]):
+def iso_response_curvature_poly_fits(activations, target, target_is_act=True, yx_scale=[1, 1]):
     """
     Parameters:
         activations [np.ndarray] first index is the target neuron, second index is the data plane
-        target_act [float] target activity for finding iso-response contours
+        target [float] target activity for finding iso-response contours OR target position along x axis for finding the target activity
+            if target_is_act is false, then target refers to a position on the x axis from -1 (left most point) to 1 (right most point)
+        target_is_act [bool] if True, then the 'target' parameter is an activation value, else the 'target' parameter is the x axis position
         yx_scale [list of ints] y and x (respectively) scale factors for remapping activations to the data domain
     Outputs:
         curvatures [list of lists] of lengths [num_neurons][num_planes] which contain the estimated iso-response curvature coefficient for the given neuron and plane
@@ -29,6 +31,11 @@ def iso_response_curvature_poly_fits(activations, target_act, yx_scale=[1, 1]):
             activity = activations[neuron_id, plane_id, ...]
             if activity.max() > 0.0:
                 num_y, num_x = activity.shape
+                if target_is_act:
+                    target_act = target
+                else:
+                    target_pos = int(num_x * ((target + 1) / 2)) # map [-1, 1] to [0, num_x]
+                    target_act = activity[num_y//2, target_pos]
                 activity[:, :num_x//2] = 0 # remove data for x<0
                 if np.abs(activity.max()) <= 1e-10:
                     print(
