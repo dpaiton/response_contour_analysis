@@ -225,4 +225,3 @@ def plot_curvature_histograms(hist_list, label_list, color_list, bin_centers, ti
         #axes[axis_y][axis_x].set_ylim([0, 1.0])
     plt.show()
     return fig
-
