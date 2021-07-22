@@ -9,11 +9,36 @@ import numpy.polynomial.polynomial as poly
 from skimage import measure
 
 
+def remap_coordinate_to_target(num_vals, coordinate):
+    """
+    Map coordinate from [0, num_vals-1] to [-1, 1]
+    Parameters:
+        num_vals [int] number of discrete bins in the original range
+        coordinate [int] bin of interest from original range
+    Outputs:
+        target [float] coordinate remapped to bet between [-1, 1]
+    """
+    target = (2 * coordinate) / (num_vals - 1) - 1
+    return target
+
+def remap_target_to_coordinate(num_vals, target):
+    """
+    Map target from [-1, 1] to [0, num_vals-1]
+    Parameters:
+        num_vals [int] number of discrete bins in the desired output range
+        target [float] coordinate remapped to bet between [-1, 1]
+    Outputs:
+        coordinate [int] target remapped to be one of the num_vals bins
+    """
+    coordinate = int(np.around((num_vals - 1) * ((target + 1) / 2)))
+    return coordinate
+
 def iso_response_curvature_poly_fits(activations, target, target_is_act=True, yx_scale=[1, 1]):
     """
     Parameters:
         activations [np.ndarray] first index is the target neuron, second index is the data plane
         target [float] target activity for finding iso-response contours OR target position along x axis for finding the target activity
+            if target_is_act is true, then target refers to normalized activity for the given feature map, i.e. it should be between 0 (minimum activity) and 1 (maximum activity)
             if target_is_act is false, then target refers to a position on the x axis from -1 (left most point) to 1 (right most point)
         target_is_act [bool] if True, then the 'target' parameter is an activation value, else the 'target' parameter is the x axis position
         yx_scale [list of ints] y and x (respectively) scale factors for remapping activations to the data domain
@@ -31,16 +56,10 @@ def iso_response_curvature_poly_fits(activations, target, target_is_act=True, yx
             activity = activations[neuron_id, plane_id, ...]
             if activity.max() > 0.0:
                 num_y, num_x = activity.shape
-                if target_is_act:
-                    target_act = target
-                else:
-                    # map [-1, 1] to [0, num_x-1]
-                    target_pos = int((num_x - 1) * ((target + 1) / 2)) 
-                    target_act = activity[(num_y//2)-1, target_pos]
                 #activity[:, :(num_x//2-1)] = 0 # remove data for x<0
                 if np.abs(activity.max()) <= 1e-10:
                     print(
-                        f'WARNING: iso_response_curvature_poly_fits: After isolating the right half,' 
+                        f'WARNING: iso_response_curvature_poly_fits: '
                         +'maximum value of activations for '
                         +f'neuron_index={neuron_id}, comparison_index={plane_id}, is {activity.max}'
                     )
@@ -50,6 +69,12 @@ def iso_response_curvature_poly_fits(activations, target, target_is_act=True, yx
                     continue
                 activity = activity - activity.min() # renormalize to be between 0 and 1
                 activity = activity / activity.max()
+                if target_is_act:
+                    assert (0 <= target <= 1), (f'utils/histogram_analysis: ERROR: target={target} must in the inclusive range [0, 1]')
+                    target_act = target
+                else: # target is x axis position
+                    target_pos = remap_target_to_coordinate(num_x, target)
+                    target_act = activity[(num_y//2)-1, target_pos]
                 try: # compute curvature
                     contours = measure.find_contours(activity, target_act)
                     contours = np.concatenate(contours, axis=0) # Grab all of them together
