@@ -40,12 +40,12 @@ def normalize_ensemble_activations(activations):
     return normalized_activations
     
 
-def get_normalized_activations(model, contour_dataset, target_model_ids, get_activation_function, activation_function_kwargs={}):
+def get_activations(model, contour_dataset, target_model_ids, get_activation_function, normalize=True, activation_function_kwargs={}):
     """
     Parameters:
         target_model_ids [list of ints] with shape [num_target_neurons] indicating which neuron index for activations
         contour_dataset [list of list of ndarray] with shapes [num_target_neurons][num_comparisons_per_target][num_datapoints, datapoint_length]
-        get_activation_function [python function] which can be called to get the activations from a model for a given input image
+        get_activation_function [python function] which can be called to get the [np.ndarray] activations from a model for a given input image
         activation_function_kwargs [dict] other keyword arguments to be passed to get_activation_function()
     Returns:
         ndarray with shape [num_target_neurons, num_target_planes, num_comparison_planes, num_datapoints_x, num_datapoints_y]
@@ -62,11 +62,13 @@ def get_normalized_activations(model, contour_dataset, target_model_ids, get_act
             if target_model_ids is not None:
                 neuron_index = target_model_ids[target_index]
                 activations = get_activation_function(model, datapoints, neuron_index, **activation_function_kwargs)
-                activations = normalize_single_neuron_activations(activations)
+                if normalize:
+                    activations = normalize_single_neuron_activations(activations)
                 activations = activations.reshape(1, int(np.sqrt(num_images)), int(np.sqrt(num_images)))
             else:
                 activations = get_activation_function(model, datapoints, **activation_function_kwargs)
-                activations = normalize_ensemble_activations(activations)
+                if normalize:
+                    activations = normalize_ensemble_activations(activations)
                 activations = activations.reshape(activations.shape[1], int(np.sqrt(num_images)), int(np.sqrt(num_images)))
             activations_sub_list.append(activations)
         activations_list.append(np.stack(activations_sub_list, axis=1))
