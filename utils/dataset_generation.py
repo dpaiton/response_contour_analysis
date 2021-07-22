@@ -8,6 +8,25 @@ import torch
 import numpy as np
 
 
+def remap_axis_index_to_dataset_index(axis_index, axis_min, axis_max, num_images):
+    """
+    Map axis_index from [axis_min, axis_max] to [0, num_images-1]
+    Parameters:
+        axis_index [float] location along axis to represent, must be between axis_min and axis_max
+        axis_min [float] minimum vlaue of projection axis
+        axis_max [float] maximum value of projection axis
+        num_images [int] number of images (i.e. discrete bins) that lie along an axis
+    Outputs:
+        dataset_index [int] output in terms of discrete bin location from 0 to num_images-1
+    """
+    assert axis_index >= axis_min, (f'dataset_generation/remap_axis_index_to_dataset_index:'
+        +'ERROR: axis_index = {axis_index} must be greater than or equal to axis_min = {axis_min}.')
+    assert axis_index <= axis_max, (f'dataset_generation/remap_axis_index_to_dataset_index:'
+        +'ERROR: axis_index = {axis_index} must be less than or equal to axis_max = {axis_max}.')
+    norm_axis_index = (axis_index - axis_min) / (axis_max - axis_min) # map axis_index to [0, 1]
+    dataset_index = norm_axis_index * (num_images - 1) # map axis_index to [0, num_images-1]
+    return int(dataset_index)
+
 def torch_angle_between_vectors(vec0, vec1):
     """
     Returns the cosine angle between two vectors
@@ -107,6 +126,20 @@ def get_proj_matrix(target_vector, comp_vector):
     normed_target_vector, orth_vector = define_plane(target_vector, comp_vector)
     proj_matrix = np.stack([normed_target_vector, orth_vector], axis=0)
     return proj_matrix
+
+
+def project_data(proj_matrix, datapoints, image_scale=1.0):
+    """
+    Project ND datapoints into 2D plane
+    Parameters:
+        proj_matrix [np.ndarray] of shape [2, N] for projecting data to the 2D plane
+        datapoitns [np.ndarray] of shape [num_datapoints, N] high dimensional data
+    outputs:
+        proj_datapoints [np.ndarray] of shape [num_datapoints, 2] projected data
+    """
+    num_images, data_length = datapoints.shape
+    proj_datapoints = np.dot(datapoints / image_scale, proj_matrix.T).astype(np.float32)
+    return proj_datapoints
 
 
 def inject_data(proj_matrix, proj_datapoints, image_scale=1.0, data_shape=None):
@@ -432,7 +465,7 @@ def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images
     elif type(comparison_vectors[0]) is np.ndarray: # generator combines each comparison vector with each target vector
         target_comp_zip = ((target_vector, comparison_vectors) for target_vector in target_vectors)
     else:
-        assert False, ('comparison vectors must be of type "list" or "np.ndarray", not "%s"'%(type(comparison_vectors)))
+        assert False, ('comparison vectors must be of type "list of list" or "list of np.ndarray", not "%s"'%(type(comparison_vectors)))
     for target_vect, target_comp_vects in target_comp_zip:
         orth_vect_sub_list = []
         proj_target_vect_sub_list = []
