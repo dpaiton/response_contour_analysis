@@ -4,24 +4,78 @@ Utility funcions for generating datasets for response analysis
 Authors: Dylan Paiton, Santiago Cadena
 """
 
+import torch
 import numpy as np
 
 
-def normalize_vector(vector):
+def remap_axis_index_to_dataset_index(axis_index, axis_min, axis_max, num_images):
     """
-    ensure input is a vector, and then divide it by its l2 norm.
+    Map axis_index from [axis_min, axis_max] to [0, num_images-1]
     Parameters:
-        vector [ np.ndarray] vector with shape [vector_length,].
-            It can also be a square image, which will first be vectorized
+        axis_index [float] location along axis to represent, must be between axis_min and axis_max
+        axis_min [float] minimum vlaue of projection axis
+        axis_max [float] maximum value of projection axis
+        num_images [int] number of images (i.e. discrete bins) that lie along an axis
     Outputs:
-        vector [np.ndarray] vector with shape [vector_length,] and l2-norm = 1
+        dataset_index [int] output in terms of discrete bin location from 0 to num_images-1
     """
-    vector = vector.reshape(vector.size)
+    assert axis_index >= axis_min, (f'dataset_generation/remap_axis_index_to_dataset_index:'
+        +'ERROR: axis_index = {axis_index} must be greater than or equal to axis_min = {axis_min}.')
+    assert axis_index <= axis_max, (f'dataset_generation/remap_axis_index_to_dataset_index:'
+        +'ERROR: axis_index = {axis_index} must be less than or equal to axis_max = {axis_max}.')
+    norm_axis_index = (axis_index - axis_min) / (axis_max - axis_min) # map axis_index to [0, 1]
+    dataset_index = norm_axis_index * (num_images - 1) # map axis_index to [0, num_images-1]
+    return int(dataset_index)
+
+def torch_angle_between_vectors(vec0, vec1):
+    """
+    Returns the cosine angle between two vectors
+    Parameters:
+        vec_a [torch vector] with shape [vector_length, 1]
+        vec_b [torch vector] with shape [vector_length, 1]
+    Outputs:
+        angle [float] angle between the two vectors, in radians
+    """
+    assert vec0.shape == vec1.shape, (f'vec0.shape = {vec0.shape} must equal vec1.shape={vec1.shape}')
+    assert vec0.ndim == 2, (f'vec0 should have ndim==2 with secondary dimension=1, not {vec0.shape}')
+    inner_products = torch.matmul(torch_l2_normalize(vec0).T, torch_l2_normalize(vec1))
+    inner_products = torch.clip(inner_products, -1.0, 1.0)
+    angle = torch.arccos(inner_products)
+    return angle
+
+def torch_l2_normalize(array):
+    """
+    Convert input to a vector, and then divide it by its l2 norm.
+    Parameters:
+        array [torch tensor] vector with shape [vector_length,].
+            It can also be a 2D image, which will first be vectorized
+    Outputs:
+        array [torch tensor] as same shape as the input and with l2-norm = 1
+    """
+    original_shape = array.shape
+    vector = array.reshape(-1)
+    vector = vector / torch.linalg.norm(vector)
+    return vector.reshape(original_shape)
+    return vector
+
+def l2_normalize(array):
+    """
+    Convert input to a vector, and then divide it by its l2 norm.
+    Parameters:
+        array [ np.ndarray] vector with shape [vector_length,].
+            It can also be a 2D image, which will first be vectorized
+    Outputs:
+        array [np.ndarray] as same shape as the input and with l2-norm = 1
+    """
+    original_shape = array.shape
+    vector = array.reshape(array.size)
     vector = vector / np.linalg.norm(vector)
+    if vector.shape != original_shape:
+        vector.reshape(original_shape)
     return vector
 
 
-def gram_schmidt(target_vector, comp_vector):
+def define_plane(target_vector, comp_vector):
     """
     Perform a single step of the Gram-Schmidt process
         https://en.wikipedia.org/wiki/Gram-Schmidt_process
@@ -31,34 +85,124 @@ def gram_schmidt(target_vector, comp_vector):
     Outputs:
         orth_normed [np.ndarray] column vector with shape [vector_length,] that is orthogonal to target_vector and has unit norm
     """
-    t_normed = np.squeeze(normalize_vector(target_vector))
-    c_normed = np.squeeze(normalize_vector(comp_vector))
+    t_normed = np.squeeze(l2_normalize(target_vector))
+    c_normed = np.squeeze(l2_normalize(comp_vector))
     if np.all(t_normed == c_normed):
         print('ERROR: From dataset_generation/gram_schmidt.py: input target vector and comp vector are equal and must be different.')
         import IPython; IPython.embed(); raise SystemExit
-    orth_vector = c_normed - np.dot(c_normed[:, None].T, t_normed[:, None]) * t_normed # column vector
+    orth_normed = gram_schmidt(t_normed, c_normed)
+    return t_normed, orth_normed
+
+
+def gram_schmidt(target_normed, comp_normed):
+    """
+    Perform a single step of the Gram-Schmidt process
+        https://en.wikipedia.org/wiki/Gram-Schmidt_process
+    Parameters:
+        target_normed [np.ndarray] l2 normalized vector with shape [vector_length,]
+        comp_normed [np.ndarray] l2 normalized vector with shape [vector_length,]
+    Outputs:
+        orth_normed [np.ndarray] l2 normalized vector with shape [vector_length,] that is orthogonal to target_vector
+    """
+    orth_vector = comp_normed - np.dot(comp_normed[:, None].T, target_normed[:, None]) * target_normed
     orth_norm = np.linalg.norm(orth_vector)
     if orth_norm == 0:
         print('WARNING: From dataset_generation/gram_schmidt.py: norm of orthogonal vector is 0.')
-    orth_normed = np.squeeze((orth_vector / orth_norm).T)
+    orth_normed = np.squeeze((orth_vector / orth_norm).T) # normalize & transpose to be a row vector
     return orth_normed
+
+
+def get_proj_matrix(target_vector, comp_vector):
+    """
+    Computes an orthonormal matrix composed of the target_vector and an orthogonal vector
+    Parameters:
+        target_vector [np.ndarray] of shape [vector_length,]
+        comp_vector [np.ndarray] of shape [vector_length,]
+        comp_is_orth [bool] If false, find orth vector that is as close as possible
+            to comp_vector using the Gram-Schmidt process
+    Outputs:
+        projection_matrix [np.ndarray] of shape [2, vector_length] for projecting data into and out of pixel space
+    """
+    normed_target_vector, orth_vector = define_plane(target_vector, comp_vector)
+    proj_matrix = np.stack([normed_target_vector, orth_vector], axis=0)
+    return proj_matrix
+
+
+def project_data(proj_matrix, datapoints, image_scale=1.0):
+    """
+    Project ND datapoints into 2D plane
+    Parameters:
+        proj_matrix [np.ndarray] of shape [2, N] for projecting data to the 2D plane
+        datapoitns [np.ndarray] of shape [num_datapoints, N] high dimensional data
+    outputs:
+        proj_datapoints [np.ndarray] of shape [num_datapoints, 2] projected data
+    """
+    num_images, data_length = datapoints.shape
+    proj_datapoints = np.dot(datapoints / image_scale, proj_matrix.T).astype(np.float32)
+    return proj_datapoints
+
+
+def inject_data(proj_matrix, proj_datapoints, image_scale=1.0, data_shape=None):
+    """
+    Inject 2D datapoints into ND
+    Parameters:
+        proj_matrix [np.ndarray] of shape [2, N] for injecting data into higher dimensions
+        proj_datapoints [np.ndarray] of shape [num_datapoints, 2] 2D points to be injected
+            for example a meshgrid of coordinate locations
+        image_scale [float] final norm of datapoints
+            for example the average norm of the training images
+        data_shape [list]
+            if provided, then the output will be shaped [num_datapoints]+data_shape
+            if None, then the output will be shaped [num_datapoints, int(sqrt(N)), int(sqrt(N))]
+    Outputs:
+        datapoints [np.ndarray] of shape [num_datapoints, N] injected data
+    """
+    input_dim, data_length = proj_matrix.shape
+    num_datapoints = proj_datapoints.shape[0]
+    datapoints = np.dot(proj_datapoints, proj_matrix).astype(np.float32)
+    if data_shape is None:
+        data_edge = int(np.sqrt(data_length))
+        datapoints = datapoints.reshape((num_datapoints, 1, data_edge, data_edge))
+    else:
+        datapoints = datapoints.reshape([num_datapoints] + list(data_shape))
+    datapoints *= image_scale # rescale datapoint norm
+    return datapoints
+
+
+def get_datamesh(yx_range, num_images):
+    """
+    Returns a meshgrid of points within the specified range
+    Parameters:
+        yx_range [list of tuple] indicating [(x_axis_min, x_axis_max), (y_axis_min, y_axis_max)]
+        num_images [int] indicating how many images to compute from each plane. This must have an even square root.
+    Outputs:
+        proj_datapoints [np.ndarray] of shape [num_datapoints, 2]
+    """
+    y_range = yx_range[0]
+    x_range = yx_range[1]
+    x_pts = np.linspace(x_range[0], x_range[1], int(np.sqrt(num_images)))
+    y_pts = np.linspace(y_range[0], y_range[1], int(np.sqrt(num_images)))
+    X_mesh, Y_mesh = np.meshgrid(x_pts, y_pts)
+    proj_datapoints = np.stack([X_mesh.reshape(num_images), Y_mesh.reshape(num_images)], axis=1)
+    return proj_datapoints, x_pts, y_pts
 
 
 def angle_between_vectors(vec0, vec1):
     """
     Returns the cosine angle between two vectors
     Parameters:
-        vec_a [np.ndarray] l2 normalized vector with shape [vector_length, 1]
-        vec_b [np.ndarray] l2 normalized vector with shape [vector_length, 1]
+        vec_a [np.ndarray] with shape [vector_length, 1]
+        vec_b [np.ndarray] with shape [vector_length, 1]
     Outputs:
         angle [float] angle between the two vectors, in radians
     """
     assert vec0.shape == vec1.shape, (f'vec0.shape = {vec0.shape} must equal vec1.shape={vec1.shape}')
     assert vec0.ndim == 2, (f'vec0 should have ndim==2 with secondary dimension=1, not {vec0.shape}')
-    inner_products = np.dot(vec0.T, vec1)
+    inner_products = np.dot(l2_normalize(vec0).T, l2_normalize(vec1))
     inner_products = np.clip(inner_products, -1.0, 1.0)
     angle = np.arccos(inner_products)
     return angle
+
 
 def one_to_many_angles(vec_a, vec_list_b):
     """
@@ -92,32 +236,13 @@ def all_to_all_angles(list_of_vectors):
     vect_angles = np.zeros(vect_size)
     angle_matrix = np.zeros((num_vectors, num_vectors))
     for angleid, (nid0, nid1) in enumerate(zip(*indices)):
-        vec0 = normalize_vector(list_of_vectors[nid0]).reshape((vector_length, 1))
-        vec1 = normalize_vector(list_of_vectors[nid1]).reshape((vector_length, 1))
+        vec0 = list_of_vectors[nid0]).reshape((vector_length, 1)
+        vec1 = list_of_vectors[nid1]).reshape((vector_length, 1)
         angle = angle_between_vectors(vec0, vec1) * (180 / np.pi) # degrees
         vect_angles[angleid] = angle
         angle_matrix[nid0, nid1] = angle
     angle_matrix[angle_matrix==0] = -1
     return vect_angles, angle_matrix
-
-
-def get_proj_matrix(target_vector, comp_vector, comp_is_orth=False):
-    """
-    Computes an orthonormal matrix composed of the target_vector and an orthogonal vector
-    Parameters:
-        target_vector [np.ndarray] of shape [vector_length,]
-        comp_vector [np.ndarray] of shape [vector_length,]
-        comp_is_orth [bool] If false, find orth vector that is as close as possible
-            to comp_vector using the Gram-Schmidt process
-    Outputs:
-        projection_matrix [np.ndarray] of shape [2, vector_length] for projecting data into and out of pixel space
-    """
-    if comp_is_orth:
-        orth_vector = comp_vector
-    else:
-        orth_vector = gram_schmidt(target_vector, comp_vector)
-    proj_matrix = np.stack([target_vector, orth_vector], axis=0)
-    return proj_matrix
 
 
 def find_orth_vect(matrix):
@@ -134,7 +259,7 @@ def find_orth_vect(matrix):
     candidate_vect = np.zeros(matrix.shape[0]+1)
     candidate_vect[-1] = 1
     orth_vect = np.linalg.lstsq(new_matrix, candidate_vect, rcond=None)[0] # [0] indexes lst-sqrs solution
-    orth_vect = np.squeeze(normalize_vector(orth_vect))
+    orth_vect = np.squeeze(l2_normalize(orth_vect))
     return orth_vect
 
 
@@ -186,7 +311,7 @@ def compute_rand_vectors(target_vectors, num_comparisons=1):
     rand_orth_vectors = []
     for target_vector in target_vectors:
         target_vector = target_vector.reshape(target_vector.size) # shape is [vector_length,]
-        norm_target_vectors.append(normalize_vector(target_vector))
+        norm_target_vectors.append(l2_normalize(target_vector))
         rand_orth_vectors.append(get_rand_orth_vectors(target_vector, num_comparisons))
     return (norm_target_vectors, rand_orth_vectors)
 
@@ -229,7 +354,7 @@ def compute_comp_vectors(all_vectors, target_vector_ids, min_angle=5, num_compar
     normed_target_vectors = []
     comparison_vectors = []
     for target_neuron_id in target_vector_ids:
-        target_vector = normalize_vector(all_vectors[target_neuron_id])
+        target_vector = l2_normalize(all_vectors[target_neuron_id])
         normed_target_vectors.append(target_vector)
         target_neuron_locs = np.argwhere(sorted_angle_indices[:, 0] == target_neuron_id)
         # high_angle_neuron_ids are indices for all neurons that have a high angle (above min_angle) with the target neuron
@@ -260,7 +385,7 @@ def compute_comp_vectors(all_vectors, target_vector_ids, min_angle=5, num_compar
         comparison_vector_matrix = target_vector.T[:, None] # matrix of alternate vectors
         for comparison_vector_id in sub_comparison_vector_ids:
             if(comparison_vector_id != target_neuron_id):
-                comparison_vector = np.squeeze(normalize_vector(all_vectors[comparison_vector_id]).T)
+                comparison_vector = np.squeeze(l2_normalize(all_vectors[comparison_vector_id]).T)
                 comparison_vector_matrix = np.append(comparison_vector_matrix, comparison_vector[:,None], axis=1)
         comparison_vector_ids.append(sub_comparison_vector_ids)
         comparison_vectors.append(comparison_vector_matrix.T[1:,:])
@@ -285,14 +410,14 @@ def compute_specified_vectors(all_vectors, target_vector_ids, comparison_vector_
     normed_target_vectors = []
     comparison_vectors = []
     for target_index, target_neuron_id in enumerate(target_vector_ids):
-        target_vector = normalize_vector(all_vectors[target_neuron_id])
+        target_vector = l2_normalize(all_vectors[target_neuron_id])
         normed_target_vectors.append(target_vector)
         # Build out matrix of comparison vectors from the computed IDs
         comparison_vector_matrix = target_vector.T[:, None] # matrix of alternate vectors
         for comparison_vector_id in comparison_vector_ids[target_index]:
             if(comparison_vector_id != target_neuron_id):
                 comparison_vector = all_vectors[comparison_vector_id]
-                comparison_vector = np.squeeze(normalize_vector(comparison_vector).T)
+                comparison_vector = np.squeeze(l2_normalize(comparison_vector).T)
                 comparison_vector_matrix = np.append(comparison_vector_matrix,
                     comparison_vector[:,None], axis=1)
             else:
@@ -301,24 +426,14 @@ def compute_specified_vectors(all_vectors, target_vector_ids, comparison_vector_
     return (normed_target_vectors, comparison_vectors)
 
 
-def inject_data(proj_matrix, proj_datapoints, image_scale=1.0):
-    data_length = proj_matrix.shape[1]
-    num_datapoints = proj_datapoints.shape[0]
-    datapoints = np.stack([np.dot(proj_matrix.T, proj_datapoints[data_id,:]).astype(np.float32)
-        for data_id in range(num_datapoints)], axis=0) #inject
-    data_edge = int(np.sqrt(data_length))
-    datapoints = datapoints.reshape((num_datapoints, data_edge, data_edge, 1))
-    datapoints *= image_scale # rescale datapoint norms to average of model training stimuli
-    return datapoints
-
-
-def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, num_images, image_scale=1.0, return_datapoints=True):
+def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images, image_scale=1.0, data_shape=None, return_datapoints=True):
     """
     Parameters:
         target_vectors [list] of normalized target vectors
-        comparison_vectors [list of lists] of normalized comparison vectors per target vector
-        x_range [tuple] indicating (min, max) for x axis
-        y_range [tuple] indicating (min, max) for y axis
+        comparison_vectors [list; or list of list] of normalized comparison vectors
+            if type is list then each entry should be an np.ndarray comparison vector to be combined with all target vectors
+            if type is list of list then it is assumed that the a comparison vector is provided for each target vector
+        yx_range [list of tuple] indicating [(x_axis_min, x_axis_max), (y_axis_min, y_axis_max)]
         num_images [int] indicating how many images to compute from each plane. This must have an even square root.
         image_scale [float] indicating desired length of the image vectors.
             Each normalized image vector will be multiplied by image_scale after being injected into image space.
@@ -332,13 +447,8 @@ def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, nu
             x_pts - linear interpolation between x_range[0] and x_range[1]
             y_pts - linear interpolation between y_range[0] and y_range[1]
         datapoints has shape [num_target_neurons][num_comparisons_per_target (or num_planes)][num_datapoints, datapoint_length]
-        
-    TODO: If comparison_vectors is not a list of lists then assume the same list is applied per target
     """
-    x_pts = np.linspace(x_range[0], x_range[1], int(np.sqrt(num_images)))
-    y_pts = np.linspace(y_range[0], y_range[1], int(np.sqrt(num_images)))
-    X_mesh, Y_mesh = np.meshgrid(x_pts, y_pts)
-    proj_datapoints = np.stack([X_mesh.reshape(num_images), Y_mesh.reshape(num_images)], axis=1)
+    proj_datapoints, x_pts, y_pts = get_datamesh(yx_range, num_images)
     all_datapoints = []
     out_dict = {
         'orth_vect': [],
@@ -350,23 +460,22 @@ def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, nu
         'x_pts': x_pts,
         'y_pts': y_pts
     }
-    if type(comparison_vectors) is list:
+    if type(comparison_vectors[0]) is list: # each target vector has pre-defined comparison vectors
         target_comp_zip = zip(target_vectors, comparison_vectors)
-    elif type(comparison_vectors) is np.ndarray:
-        target_comp_zip = ((target_vector, comparison_vectors) for target_vector in target_vectors) # generator
+    elif type(comparison_vectors[0]) is np.ndarray: # generator combines each comparison vector with each target vector
+        target_comp_zip = ((target_vector, comparison_vectors) for target_vector in target_vectors)
     else:
-        assert False, ('comparison vectors must be of type "list" or "np.ndarray", not %s'%(type(comparison_vectors)))
-    for target_vect, all_comparison_vects in target_comp_zip:
+        assert False, ('comparison vectors must be of type "list of list" or "list of np.ndarray", not "%s"'%(type(comparison_vectors)))
+    for target_vect, target_comp_vects in target_comp_zip:
         orth_vect_sub_list = []
         proj_target_vect_sub_list = []
         proj_comparison_vect_sub_list = []
         proj_orth_vect_sub_list = []
         proj_matrix_sub_list = []
         datapoints_sub_list = []
-        num_comparison_vects = all_comparison_vects.shape[0]
-        for comparison_vect_idx in range(num_comparison_vects): # Each contour plane for the population study
-            comparison_vect = np.squeeze(all_comparison_vects[comparison_vect_idx, :])
-            proj_matrix = get_proj_matrix(target_vect, comparison_vect, comp_is_orth=False) # works fine even if it is orthogonal
+        for comparison_vect in target_comp_vects: # Each contour plane for the population study
+            comparison_vect = np.squeeze(comparison_vect)
+            proj_matrix = get_proj_matrix(target_vect, comparison_vect)
             orth_vect = np.squeeze(proj_matrix[1,:])
             if return_datapoints:
                 datapoints_sub_list.append(inject_data(proj_matrix, proj_datapoints, image_scale))
@@ -384,4 +493,3 @@ def get_contour_dataset(target_vectors, comparison_vectors, x_range, y_range, nu
         out_dict['proj_orth_vect'].append(proj_orth_vect_sub_list)
         out_dict['proj_matrix'].append(proj_matrix_sub_list)
     return out_dict, all_datapoints
-
