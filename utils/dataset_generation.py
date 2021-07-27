@@ -236,8 +236,8 @@ def all_to_all_angles(list_of_vectors):
     vect_angles = np.zeros(vect_size)
     angle_matrix = np.zeros((num_vectors, num_vectors))
     for angleid, (nid0, nid1) in enumerate(zip(*indices)):
-        vec0 = list_of_vectors[nid0]).reshape((vector_length, 1)
-        vec1 = list_of_vectors[nid1]).reshape((vector_length, 1)
+        vec0 = list_of_vectors[nid0].reshape((vector_length, 1))
+        vec1 = list_of_vectors[nid1].reshape((vector_length, 1))
         angle = angle_between_vectors(vec0, vec1) * (180 / np.pi) # degrees
         vect_angles[angleid] = angle
         angle_matrix[nid0, nid1] = angle

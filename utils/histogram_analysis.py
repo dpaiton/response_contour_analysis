@@ -1,5 +1,5 @@
 """
-Utility funcions for summarizing response contours
+Utility funcions for polynomial curvature analysis of iso-response contours
 
 Authors: Dylan Paiton, Santiago Cadena
 """

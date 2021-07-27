@@ -4,8 +4,20 @@ Utility funcions for managing pytorch models
 Authors: Dylan Paiton, Santiago Cadena
 """
 
+import torch
 import numpy as np
 
+def unit_activation(model, image, target_neuron):
+    model.zero_grad()
+    activations = model(image)[:, target_neuron]
+    return activations
+
+def unit_activation_and_gradient(model, image, target_neuron):
+    if not image.requires_grad:
+        image.requires_grad = True
+    activations = unit_activation(model, image, target_neuron)
+    grad = torch.autograd.grad(activations, image)[0]
+    return activations, grad
 
 def normalize_single_neuron_activations(single_neuron_activations):
     """
@@ -40,7 +52,7 @@ def normalize_ensemble_activations(activations):
     return normalized_activations
     
 
-def get_activations(model, contour_dataset, target_model_ids, get_activation_function, normalize=True, activation_function_kwargs={}):
+def get_contour_dataset_activations(model, contour_dataset, target_model_ids, get_activation_function, normalize=True, activation_function_kwargs={}):
     """
     Parameters:
         target_model_ids [list of ints] with shape [num_target_neurons] indicating which neuron index for activations
