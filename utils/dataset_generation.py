@@ -6,6 +6,7 @@ Authors: Dylan Paiton, Santiago Cadena
 
 import torch
 import numpy as np
+import skimage
 
 
 def remap_axis_index_to_dataset_index(axis_index, axis_min, axis_max, num_images):
@@ -493,3 +494,34 @@ def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images
         out_dict['proj_orth_vect'].append(proj_orth_vect_sub_list)
         out_dict['proj_matrix'].append(proj_matrix_sub_list)
     return out_dict, all_datapoints
+
+def triangle_mask_image(image, yx_range, hypotenuse_slope, hypotenuse_length):
+    """
+    Mask an input image using a right triangle mask
+        typically used for masking out regions of an activity map
+        the origin, x=y=0, will be determined to be the center coordinate of the image
+        the triangle always extends from the origin along the positive x direction
+        the right angle is at y=0, and the x coordinate is determined from the given hypotenuse slope and length
+        the hypotenuse vector will be pointing into the first quadrant
+    Parameters:
+        image [np.ndarray] image to be masked
+        yx_range [tuple of tuples] containing ((y_min, y_max), (x_min, x_max)), which is used to determine the origin
+        hypotenuse_slope [float] slope of the hypotenuse line
+        hypotenuse_length [float] length of the hypotenuse line
+    """
+    ((y_min, y_max), (x_min, x_max)) = yx_range
+    ranges = [y_max - y_min, x_max - x_min]
+    mins = [y_min, x_min]
+    cv_endpoint = y_max/hypotenuse_slope
+    conv_pts = lambda li : [int((li[i] - mins[i]) / ranges[i] * hypotenuse_length) for i in range(len(li))]
+    all_pts = [
+        conv_pts([0, 0]), # [y, x]
+        conv_pts([0, x_max]),
+        conv_pts([y_max, x_max]),
+        conv_pts([y_max, cv_endpoint]),
+        conv_pts([0, 0])
+    ]
+    polygon = np.array(all_pts)
+    mask = skimage.draw.polygon2mask(image.shape, polygon)
+    image[~mask] = 0
+    return image
