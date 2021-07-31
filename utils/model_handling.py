@@ -60,7 +60,7 @@ def get_contour_dataset_activations(model, contour_dataset, target_model_ids, ge
         get_activation_function [python function] which can be called to get the [np.ndarray] activations from a model for a given input image
         activation_function_kwargs [dict] other keyword arguments to be passed to get_activation_function()
     Returns:
-        ndarray with shape [num_target_neurons, num_target_planes, num_comparison_planes, num_datapoints_x, num_datapoints_y]
+        ndarray with shape [num_target_neurons, num_target_planes, num_comparison_planes, num_datapoints_y, num_datapoints_x]
     """
     activations_list = []
     for target_index, target_dataset in enumerate(contour_dataset):

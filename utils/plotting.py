@@ -10,9 +10,12 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.ticker as plticker
+from matplotlib.offsetbox import (OffsetImage, AnnotationBbox)
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 import proplot as pro
+
+import utils.dataset_generation as iso_data
 
 
 def clear_axis(ax, spines='none'):
@@ -225,3 +228,126 @@ def plot_curvature_histograms(hist_list, label_list, color_list, bin_centers, ti
         #axes[axis_y][axis_x].set_ylim([0, 1.0])
     plt.show()
     return fig
+
+
+def add_arrow(ax, vect, xrange, yx_offset=[1,1], linestyle='-', label='', text_color='k'):
+    """
+    adds an arrow to a given plot, defined by the vect input
+    ax [matplotlib axis]
+    vect [list] with entries [vect_x, vect_y]
+    xrange [float] range of x values, to be used to rescale
+    yx_offset [list of a pair of ints] offset label from arrow
+    linestyle [str] same as matplotlib kwarg
+    label [str] label to be given to the arrow
+    text_color [str] same as color matplotlib kwarg
+    """
+    arrow_width = 0.0
+    arrow_linewidth = 1
+    arrow_headsize = 0.15
+    arrow_head_length = 0.15
+    arrow_head_width = 0.15
+    vect_x = vect[0].item()
+    vect_y = vect[1].item()
+    ax.arrow(0, 0, vect_x, vect_y,
+        width=arrow_width, head_width=arrow_head_width, head_length=arrow_head_length,
+        fc='k', ec='k', linestyle=linestyle, linewidth=arrow_linewidth, length_includes_head=True)
+    tenth_range_shift = xrange / 10 # For shifting labels
+    text_handle = ax.text(
+        vect_x + (tenth_range_shift * yx_offset[1]),
+        vect_y + (tenth_range_shift * yx_offset[0]),
+        label,
+        weight='bold',
+        color=text_color,
+        horizontalalignment='center',
+        verticalalignment='center')
+
+
+def plot_contours(ax, activity, yx_pts, yx_range, proj_vects=None, num_levels=10, contours=None, fits=None, cmap='cividis', vlim=None, title=''):
+    """
+    ax [matplotlib axis]
+    activity [numpy ndarray] neuron activation values
+    yx_pts [list] returned from dataset_genration utilities
+    yx_range [list] containing [y_range, x_range], returned from dataset_generation utilities
+    proj_vects [list or None] if not None then plot target, comparison, and orthogonal vectors
+    num_levels [int] number of contour levels
+    contours [list of datapoints or None] if it is not None then the exctracted target contour points will be included
+    fits [list of datapoints or None] if it is not None then the polynomial fit points will be included
+    cmap [str] matplotlib kwarg
+    vlim [tuple] containing (vmin, vmax)
+    title [str] plot title
+    """
+    if vlim is None:
+        vmin = np.min(activity)
+        vmax = np.max(activity)
+    else:
+        vmin, vmax = vlim
+    cmap = plt.get_cmap(cmap)
+    cNorm = mpl.colors.Normalize(vmin=vmin, vmax=vmax)
+    scalarMap = mpl.cm.ScalarMappable(norm=cNorm, cmap=cmap)
+    # Plot contours
+    x_mesh, y_mesh = np.meshgrid(*yx_pts[::-1])
+    levels = np.linspace(vmin, vmax, num_levels)
+    contsf = ax.contourf(x_mesh, y_mesh, activity,
+        levels=levels, vmin=vmin, vmax=vmax, alpha=1.0, antialiased=True, cmap=cmap)
+    if proj_vects is not None:
+        # Add arrows
+        proj_target = proj_vects[0]
+        xrange = max(yx_range[1]) - min(yx_range[1])
+        add_arrow(ax, proj_target, xrange, linestyle='-')
+        proj_comparison = proj_vects[1]
+        add_arrow(ax, proj_comparison, xrange, linestyle='--')
+        proj_orth = proj_vects[2]
+        add_arrow(ax, proj_orth, xrange, linestyle='-')
+    # Add axis grid
+    ax.set_aspect('equal')
+    ax.plot(yx_range[1], [0,0], color='k', linewidth=0.5) # vertical
+    ax.plot([0,0], yx_range[0], color='k', linewidth=0.5) # horizontal
+    if contours is not None:
+        ax.scatter(contours[0], contours[1], s=4, color='r')
+    if fits is not None:
+        ax.scatter(fits[0], fits[1], s=3, marker='*', color='k')
+    ax.format(
+        ylim=[np.min(yx_pts[0]), np.max(yx_pts[0])],
+        xlim=[np.min(yx_pts[1]), np.max(yx_pts[1])],
+        title=title
+    )
+    return contsf
+
+
+def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, vmin=None, vmax=None):
+    """
+    ax [matplotlib axis]
+    images [np.ndarray] of shape [num_images_per_edge, num_images_per_edge, channels, height, weidth] images for each mesh point
+    """
+    num_images_per_edge = images.shape[0]
+    image_y_pos = iso_data.remap_axis_index_to_dataset_index(
+        axis_index=y_pos,
+        axis_min=yx_range[0][0],
+        axis_max=yx_range[0][1],
+        num_images=num_images_per_edge)
+    image_x_pos = iso_data.remap_axis_index_to_dataset_index(
+        axis_index=x_pos,
+        axis_min=yx_range[1][0],
+        axis_max=yx_range[1][1],
+        num_images=num_images_per_edge)
+    height_ratio = images.shape[3] / np.maximum(*images.shape[3:])
+    width_ratio = images.shape[4] / np.maximum(*images.shape[3:])
+    inset_height = 0.35 * height_ratio
+    inset_width = 0.35 * width_ratio
+    arr_img = np.squeeze(images[image_y_pos, image_x_pos, ...])
+    imagebox = OffsetImage(arr_img, zoom=0.75, cmap='Gray')
+    img = imagebox.get_children()[0]; img.set_clim(vmin=vmin, vmax=vmax)
+    imagebox.image.axes = ax
+    ab = AnnotationBbox(imagebox,
+        xy=[x_pos, y_pos],
+        xybox=offset,
+        xycoords=ax.transData,
+        boxcoords='offset points',
+        pad=0.0,
+        arrowprops=dict(
+            linestyle='--',
+            arrowstyle='->',
+            color='r'
+    ))
+    ax.add_artist(ab)
+    return arr_img
