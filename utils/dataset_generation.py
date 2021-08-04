@@ -438,6 +438,7 @@ def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images
         num_images [int] indicating how many images to compute from each plane. This must have an even square root.
         image_scale [float] indicating desired length of the image vectors.
             Each normalized image vector will be multiplied by image_scale after being injected into image space.
+        return_datapoints [bool] if True, return the datapoints injected into the input space
     Returns:
         out_dict [dict] containing the following keys:
             proj_target_vect - target vector, projected onto the 2D plane
@@ -479,7 +480,7 @@ def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images
             proj_matrix = get_proj_matrix(target_vect, comparison_vect)
             orth_vect = np.squeeze(proj_matrix[1,:])
             if return_datapoints:
-                datapoints_sub_list.append(inject_data(proj_matrix, proj_datapoints, image_scale))
+                datapoints_sub_list.append(inject_data(proj_matrix, proj_datapoints, image_scale, data_shape))
             else:
                 datapoints_sub_list.append(None)
             orth_vect_sub_list.append(orth_vect)
@@ -493,7 +494,9 @@ def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images
         out_dict['proj_comparison_vect'].append(proj_comparison_vect_sub_list)
         out_dict['proj_orth_vect'].append(proj_orth_vect_sub_list)
         out_dict['proj_matrix'].append(proj_matrix_sub_list)
-    return out_dict, all_datapoints
+    if return_datapoints:
+        out_dict['all_datapoints'] = all_datapoints
+    return out_dict
 
 def triangle_mask_image(image, yx_range, hypotenuse_slope, hypotenuse_length):
     """
