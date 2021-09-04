@@ -4,9 +4,10 @@ Utility funcions for generating datasets for response analysis
 Authors: Dylan Paiton, Santiago Cadena
 """
 
-import torch
 import numpy as np
+import scipy
 import skimage
+import torch
 
 
 def remap_axis_index_to_dataset_index(axis_index, axis_min, axis_max, num_images):
@@ -28,6 +29,24 @@ def remap_axis_index_to_dataset_index(axis_index, axis_min, axis_max, num_images
     dataset_index = norm_axis_index * (num_images - 1) # map axis_index to [0, num_images-1]
     return int(dataset_index)
 
+
+def angle_between_vectors(vec0, vec1):
+    """
+    Returns the cosine angle between two vectors
+    Parameters:
+        vec_a [np.ndarray] with shape [vector_length, 1]
+        vec_b [np.ndarray] with shape [vector_length, 1]
+    Outputs:
+        angle [float] angle between the two vectors, in radians
+    """
+    assert vec0.shape == vec1.shape, (f'vec0.shape = {vec0.shape} must equal vec1.shape={vec1.shape}')
+    assert vec0.ndim == 2, (f'vec0 should have ndim==2 with secondary dimension=1, not {vec0.shape}')
+    inner_products = np.dot(l2_normalize(vec0).T, l2_normalize(vec1))
+    inner_products = np.clip(inner_products, -1.0, 1.0)
+    angle = np.arccos(inner_products)
+    return angle
+
+
 def torch_angle_between_vectors(vec0, vec1):
     """
     Returns the cosine angle between two vectors
@@ -44,20 +63,6 @@ def torch_angle_between_vectors(vec0, vec1):
     angle = torch.arccos(inner_products)
     return angle
 
-def torch_l2_normalize(array):
-    """
-    Convert input to a vector, and then divide it by its l2 norm.
-    Parameters:
-        array [torch tensor] vector with shape [vector_length,].
-            It can also be a 2D image, which will first be vectorized
-    Outputs:
-        array [torch tensor] as same shape as the input and with l2-norm = 1
-    """
-    original_shape = array.shape
-    vector = array.reshape(-1)
-    vector = vector / torch.linalg.norm(vector)
-    return vector.reshape(original_shape)
-    return vector
 
 def l2_normalize(array):
     """
@@ -71,6 +76,23 @@ def l2_normalize(array):
     original_shape = array.shape
     vector = array.reshape(array.size)
     vector = vector / np.linalg.norm(vector)
+    if vector.shape != original_shape:
+        vector.reshape(original_shape)
+    return vector
+
+
+def torch_l2_normalize(array):
+    """
+    Convert input to a vector, and then divide it by its l2 norm.
+    Parameters:
+        array [torch tensor] vector with shape [vector_length,].
+            It can also be a 2D image, which will first be vectorized
+    Outputs:
+        array [torch tensor] as same shape as the input and with l2-norm = 1
+    """
+    original_shape = array.shape
+    vector = array.reshape(-1)
+    vector = vector / torch.linalg.norm(vector)
     if vector.shape != original_shape:
         vector.reshape(original_shape)
     return vector
@@ -188,23 +210,6 @@ def get_datamesh(yx_range, num_images):
     return proj_datapoints, x_pts, y_pts
 
 
-def angle_between_vectors(vec0, vec1):
-    """
-    Returns the cosine angle between two vectors
-    Parameters:
-        vec_a [np.ndarray] with shape [vector_length, 1]
-        vec_b [np.ndarray] with shape [vector_length, 1]
-    Outputs:
-        angle [float] angle between the two vectors, in radians
-    """
-    assert vec0.shape == vec1.shape, (f'vec0.shape = {vec0.shape} must equal vec1.shape={vec1.shape}')
-    assert vec0.ndim == 2, (f'vec0 should have ndim==2 with secondary dimension=1, not {vec0.shape}')
-    inner_products = np.dot(l2_normalize(vec0).T, l2_normalize(vec1))
-    inner_products = np.clip(inner_products, -1.0, 1.0)
-    angle = np.arccos(inner_products)
-    return angle
-
-
 def one_to_many_angles(vec_a, vec_list_b):
     """
     Returns cosine angle from one vector to a list of vectors
@@ -311,8 +316,7 @@ def compute_rand_vectors(target_vectors, num_comparisons=1):
     norm_target_vectors = []
     rand_orth_vectors = []
     for target_vector in target_vectors:
-        target_vector = target_vector.reshape(target_vector.size) # shape is [vector_length,]
-        norm_target_vectors.append(l2_normalize(target_vector))
+        norm_target_vectors.append(l2_normalize(target_vector.reshape(target_vector.size))) # shape is [vector_length,]
         rand_orth_vectors.append(get_rand_orth_vectors(target_vector, num_comparisons))
     return (norm_target_vectors, rand_orth_vectors)
 
@@ -498,25 +502,207 @@ def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images
         out_dict['all_datapoints'] = all_datapoints
     return out_dict
 
-def triangle_mask_image(image, yx_range, hypotenuse_slope, hypotenuse_length):
+
+def hilbert_amplitude(data, padding=None):
     """
-    Mask an input image using a right triangle mask
-        typically used for masking out regions of an activity map
-        the origin, x=y=0, will be determined to be the center coordinate of the image
-        the triangle always extends from the origin along the positive x direction
-        the right angle is at y=0, and the x coordinate is determined from the given hypotenuse slope and length
-        the hypotenuse vector will be pointing into the first quadrant
+    Compute Hilbert amplitude envelope of data matrix
+    Inputs:
+        data: [np.ndarray] of shape [num_data, num_rows, num_cols]
+        padding: [list of int] specifying how much 0-padding to use for FFT along the row & column dimension, respectively
+            default is the closest power of 2 of maximum(num_rows, num_cols)
+    Outputs:
+        envelope: [np.ndarray] same shape as data, contains Hilbert envelope
+    TODO: Bug when num_data = 1
+    """
+    cart2pol = lambda x,y: (np.arctan2(y,x), np.hypot(x, y))
+    num_data, num_rows, num_cols = data.shape
+    if padding is None or max(padding) <= largest_edge_size:
+        # Amount of zero padding for fft2 (closest power of 2)
+        Ny = np.int(2**(np.ceil(np.log2(num_rows))))
+        Nx = np.int(2**(np.ceil(np.log2(num_cols))))
+    else:
+        Ny = np.int(padding[0])
+        Nx = np.int(padding[1])
+    # Analytic signal envelope for data
+    # (Hilbet transform of each image)
+    envelope = np.zeros((num_data, num_rows, num_cols), dtype=complex)
+    # Fourier transform of data
+    f_data = np.zeros((num_data, Ny, Nx), dtype=complex)
+    # Filtered Fourier transform of data
+    # Hilbert filters
+    hil_filt = np.zeros((num_data, Ny, Nx))
+    # Grid for creating filter
+    freqsx = (2 / Nx) * np.pi * np.arange(-Nx / 2.0, Nx / 2.0)
+    freqsy = (2 / Ny) * np.pi * np.arange(-Ny / 2.0, Ny / 2.0)
+    (mesh_fx, mesh_fy) = np.meshgrid(freqsx, freqsy)
+    (theta, r) = cart2pol(mesh_fx, mesh_fy)
+    for data_idx in range(num_data):
+        # Grab single datapoint
+        datapoint = (data - np.mean(data, axis=0, keepdims=True))[data_idx, ...]
+        # Convert datapoint into DC-centered Fourier domain
+        f_datapoint = np.fft.fftshift(np.fft.fft2(datapoint, [Ny, Nx]))
+        f_data[data_idx, ...] = f_datapoint
+        # Find indices of the peak amplitude
+        max_ys = np.abs(f_datapoint).argmax(axis=0) # Returns row index for each col
+        max_x = np.argmax(np.abs(f_datapoint).max(axis=0))
+        # Convert peak amplitude location into angle in freq domain
+        fx_ang = freqsx[max_x]
+        fy_ang = freqsy[max_ys[max_x]]
+        theta_max = np.arctan2(fy_ang, fx_ang)
+        # Define the half-plane with respect to the maximum
+        ang_diff = np.abs(theta - theta_max)
+        idx = (ang_diff > np.pi).nonzero()
+        ang_diff[idx] = 2.0 * np.pi - ang_diff[idx]
+        hil_filt[data_idx, ...] = (ang_diff < np.pi / 2.).astype(int)
+        # Create analytic signal from the inverse FT of the half-plane filtered datapoint
+        abf = np.fft.ifft2(np.fft.fftshift(hil_filt[data_idx, ...] * f_datapoint))
+        envelope[data_idx, ...] = abf[0:num_rows, 0:num_cols]
+    return envelope
+
+
+def gaussian_fit(pyx):
+    """
+    Compute the expected mean & covariance matrix for a 2-D gaussian fit of input distribution
+    Inputs:
+        pyx: [np.ndarray] of shape [num_rows, num_cols] that indicates the probability function to fit
+    Outputs:
+        mean: [np.ndarray] of shape (2,) specifying the 2-D Gaussian center
+        cov: [np.ndarray] of shape (2,2) specifying the 2-D Gaussian covariance matrix
+    """
+    assert pyx.ndim == 2, (
+        'Input must have 2 dimensions specifying [num_rows, num_cols]')
+    mean = np.zeros((1, 2), dtype=np.float32) # [mu_y, mu_x]
+    for idx in np.ndindex(pyx.shape): # [y, x] ticks columns (x) first, then rows (y)
+        mean += np.asarray([pyx[idx]*idx[0], pyx[idx]*idx[1]])[None, :]
+    cov = np.zeros((2,2), dtype=np.float32)
+    for idx in np.ndindex(pyx.shape): # ticks columns first, then rows
+        cov += np.dot((idx-mean).T, (idx-mean))*pyx[idx] # typically an outer-product
+    return (np.squeeze(mean), cov)
+
+
+def generate_gaussian(shape, mean, cov):
+    """
+    Generate a Gaussian PDF from given mean & cov
+    Inputs:
+        shape: [tuple] specifying (num_rows, num_cols)
+        mean: [np.ndarray] of shape (2,) specifying the 2-D Gaussian center
+        cov: [np.ndarray] of shape (2,2) specifying the 2-D Gaussian covariance matrix
+    Outputs:
+        tuple containing (Gaussian PDF, grid_points used to generate PDF)
+            grid_points are specified as a tuple of (y,x) points
+    """
+    y_size, x_size = shape
+    y = np.linspace(0, y_size, np.int32(np.floor(y_size)))
+    x = np.linspace(0, x_size, np.int32(np.floor(x_size)))
+    mesh_x, mesh_y = np.meshgrid(x, y)
+    pos = np.empty(mesh_x.shape + (2,)) #x.shape == y.shape
+    pos[:, :, 0] = mesh_y; pos[:, :, 1] = mesh_x
+    gauss = scipy.stats.multivariate_normal(mean=mean, cov=cov)
+    return (gauss.pdf(pos), (mesh_y, mesh_x))
+
+
+def get_gauss_fit(prob_map, num_attempts=1, perc_mean=0.33):
+    """
+    Returns a gaussian fit for a given probability map
+    Fitting is done via robust regression, where a fit is
+    continuously refined by deleting outliers num_attempts times
+    Inputs:
+        prob_map [np.ndarray] set of 2-D probability map to be fit
+        num_attempts: Number of times to fit & remove outliers
+        perc_mean: All probability values below perc_mean*mean(gauss_fit) will be
+            considered outliers for repeated attempts
+    Outputs:
+        gauss_fit: [np.ndarray] specifying the 2-D Gaussian PDF
+        grid: [tuples] containing (y,x) points with which the Gaussian PDF can be plotted
+        gauss_mean: [np.ndarray] of shape (2,) specifying the 2-D Gaussian center
+        gauss_cov: [np.ndarray] of shape (2,2) specifying the 2-D Gaussian covariance matrix
+    """
+    assert prob_map.ndim==2, (
+        'get_gauss_fit: ERROR: Input prob_map must have 2 dimension specifying [num_rows, num_cols')
+    assert np.isfinite(prob_map).all(), (
+        'get_gauss_fit: ERROR: prob_map must be finite')
+    assert prob_map.max() - prob_map.min() != 0, (
+        'get_gauss_fit: ERROR: prob_map cannot have one value for all entries')
+    if num_attempts < 1:
+        num_attempts = 1
+    gauss_success = False
+    while not gauss_success:
+        tmp_prob_map = prob_map.copy()
+        try:
+            for i in range(num_attempts):
+                map_min = np.min(tmp_prob_map)
+                tmp_prob_map -= map_min
+                map_sum = np.sum(tmp_prob_map)
+                if map_sum != 1.0:
+                    tmp_prob_map /= map_sum
+                gauss_mean, gauss_cov = gaussian_fit(tmp_prob_map)
+                assert np.isfinite(gauss_mean).all(), 'get_gauss_fit: ERROR: Gauss mean value is not finite'
+                assert np.isfinite(gauss_cov).all(), 'get_gauss_fit: ERROR: Gauss cov value is not finite'
+                gauss_fit, grid = generate_gaussian(tmp_prob_map.shape, gauss_mean, gauss_cov)
+                gauss_fit = (gauss_fit * map_sum) + map_min
+                if i < num_attempts-1:
+                    gauss_mask = gauss_fit.copy()
+                    gauss_mask[np.where(gauss_mask<perc_mean*np.mean(gauss_mask))] = 0
+                    gauss_mask[np.where(gauss_mask>0)] = 1
+                    tmp_prob_map *= gauss_mask
+            gauss_success = True
+        except np.linalg.LinAlgError: # Usually means cov matrix is singular
+            print(f'get_gauss_fit: Failed to fit Gaussian at attempt {i}, trying again.'+
+            '\n  To avoid this try decreasing perc_mean.')
+            num_attempts = i-1
+            if num_attempts <= 0:
+                assert False, (
+                  'get_gauss_fit: np.linalg.LinAlgError - Unable to fit gaussian.')
+    return (gauss_fit, grid, gauss_mean, gauss_cov)
+
+
+def construct_mask_from_mean_cov(gauss_mean, gauss_cov, shape, confidence=0.90):
+    evals, evecs = np.linalg.eigh(gauss_cov)
+    sort_indices = np.argsort(evals)[::-1]
+    largest_eigval = evals[sort_indices][0]
+    smallest_eigval = evals[sort_indices][-1]
+    angle = np.arctan2(*evecs[:, sort_indices][0])
+    chisq_val = scipy.stats.chi2.ppf(confidence, 2)
+    height = chisq_val * np.sqrt(smallest_eigval) # b
+    width = chisq_val * np.sqrt(largest_eigval) # a
+    mask = np.zeros(shape)
+    rr, cc = skimage.draw.ellipse(
+        gauss_mean[0],
+        gauss_mean[1],
+        height/2, # radius
+        width/2, # radius
+        shape=shape,
+        rotation=angle)
+    mask[rr, cc] = 1
+    return mask, [height, width], angle
+
+
+def mask_then_normalize(vector, mask, mask_threshold):
+    """
     Parameters:
-        image [np.ndarray] image to be masked
-        yx_range [tuple of tuples] containing ((y_min, y_max), (x_min, x_max)), which is used to determine the origin
-        hypotenuse_slope [float] slope of the hypotenuse line
-        hypotenuse_length [float] length of the hypotenuse line
+        mask [np.ndarray] mask to zero out vector values with shape [vector_rows, vector_cols] or [vector_length,]
+        vector [np.ndarray] vector with shape [vector_rows, vector_cols] or [vector_length,].
+    Outputs:
+        vector [np.ndarray] masked vector with shape [vector_length,] and l2-norm = 1
     """
+    mask = mask.flatten()
+    vector = vector.flatten()
+    assert mask.size == vector.size, (
+        f'mask size = {mask.size} must equal vector size = {vector.size}')
+    mask /= mask.max()
+    mask[mask<mask_threshold] = 0
+    mask[mask>0] = 1
+    vector = np.multiply(mask, vector)
+    vector = vector / np.linalg.norm(vector)
+    return vector
+
+
+def poly_mask_image(image, yx_range, vector_slope, edge_length):
     ((y_min, y_max), (x_min, x_max)) = yx_range
     ranges = [y_max - y_min, x_max - x_min]
     mins = [y_min, x_min]
-    cv_endpoint = y_max/hypotenuse_slope
-    conv_pts = lambda li : [int((li[i] - mins[i]) / ranges[i] * hypotenuse_length) for i in range(len(li))]
+    cv_endpoint = y_max/vector_slope
+    conv_pts = lambda li : [int((li[i] - mins[i]) / ranges[i] * edge_length) for i in range(len(li))]
     all_pts = [
         conv_pts([0, 0]), # [y, x]
         conv_pts([0, x_max]),
