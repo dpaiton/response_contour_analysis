@@ -4,7 +4,8 @@ Utility funcions for plotting response analysis
 Authors: Dylan Paiton, Santiago Cadena
 """
 
-import numpy as np
+import os
+import sys
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -12,10 +13,13 @@ import matplotlib.gridspec as gridspec
 import matplotlib.ticker as plticker
 from matplotlib.offsetbox import (OffsetImage, AnnotationBbox)
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-
+import numpy as np
 import proplot as pro
 
-import utils.dataset_generation as iso_data
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..'))
+if ROOT_DIR not in sys.path: sys.path.append(ROOT_DIR)
+
+import response_contour_analysis.utils.dataset_generation as data_utils
 
 
 def clear_axis(ax, spines='none'):
@@ -288,7 +292,7 @@ def plot_contours(ax, activity, yx_pts, yx_range, proj_vects=None, num_levels=10
     x_mesh, y_mesh = np.meshgrid(*yx_pts[::-1])
     levels = np.linspace(vmin, vmax, num_levels)
     contsf = ax.contourf(x_mesh, y_mesh, activity,
-        levels=levels, vmin=vmin, vmax=vmax, alpha=1.0, antialiased=True, cmap=cmap)
+        levels=levels, vmin=vmin, vmax=vmax, antialiased=True, cmap=cmap)#, alpha=1.0)
     if proj_vects is not None:
         # Add arrows
         proj_target = proj_vects[0]
@@ -320,12 +324,12 @@ def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, vmin=None, vmax=No
     images [np.ndarray] of shape [num_images_per_edge, num_images_per_edge, channels, height, weidth] images for each mesh point
     """
     num_images_per_edge = images.shape[0]
-    image_y_pos = iso_data.remap_axis_index_to_dataset_index(
+    image_y_pos = data_utils.remap_axis_index_to_dataset_index(
         axis_index=y_pos,
         axis_min=yx_range[0][0],
         axis_max=yx_range[0][1],
         num_images=num_images_per_edge)
-    image_x_pos = iso_data.remap_axis_index_to_dataset_index(
+    image_x_pos = data_utils.remap_axis_index_to_dataset_index(
         axis_index=x_pos,
         axis_min=yx_range[1][0],
         axis_max=yx_range[1][1],
