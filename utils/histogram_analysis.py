@@ -4,11 +4,18 @@ Utility funcions for polynomial curvature analysis of iso-response contours
 Authors: Dylan Paiton, Santiago Cadena
 """
 
+import os
+import sys
+
 import numpy as np
 import numpy.polynomial.polynomial as poly
 from skimage import measure
 
-import utils.dataset_generation as iso_data
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..'))
+if ROOT_DIR not in sys.path: sys.path.append(ROOT_DIR)
+
+import response_contour_analysis.utils.dataset_generation as data_utils
+import response_contour_analysis.utils.model_handling as model_utils
 
 def remap_coordinate_to_target(num_vals, coordinate):
     """
@@ -17,7 +24,7 @@ def remap_coordinate_to_target(num_vals, coordinate):
         num_vals [int] number of discrete bins in the original range
         coordinate [int] bin of interest from original range
     Outputs:
-        target [float] coordinate remapped to bet between [-1, 1]
+        target [float] coordinate remapped to be between [-1, 1]
     """
     target = (2 * coordinate) / (num_vals - 1) - 1
     return target
@@ -179,11 +186,11 @@ def get_scale_factors(yx_pts, num_y, num_x, bounds=None):
     outputs are intended to be used to rescale target activations and crop activity maps
     the function assumes input is square, centered around origin, and the bounds are also centered
     Parameters:
-        yx_pts [tuple of tuple of int] containing (y_pts, x_pts), which are each returned by iso_data.get_contour_dataset
+        yx_pts [tuple of tuple of int] containing (y_pts, x_pts), which are each returned by data_utils.get_contour_dataset
         num_y [int] number of images used in the vertical direction
         num_x [int] number of images used in the horizontal direction
         activations_shape [list of int] original shape of a single activity map of shape [num_y, num_x]
-        bounds [tuple of tuple of ints] containing (y_bounds, x_bounds), which are each a tuple of (bounds_max, bounds_min)
+        bounds [tuple of tuple of ints] containing (y_bounds, x_bounds), which are each a tuple of (bounds_min, bounds_max)
     Returns:
         yx_scale_factors [tuple of int] containing (y_scale_factor, x_scale_factor)
         yx_lims [tuple of tuple of int] containing ((start_y, end_y), (start_x, end_x))
@@ -203,10 +210,10 @@ def get_scale_factors(yx_pts, num_y, num_x, bounds=None):
         x_bound_range = max(x_bounds) - min(x_bounds)
         y_trim = 0.5 * y_bound_range / y_range
         x_trim = 0.5 * x_bound_range / x_range
-        start_y = int(np.floor(y_trim*num_y))
-        end_y = int(np.ceil(3*y_trim*num_y))
-        start_x = int(np.floor(x_trim*num_x))
-        end_x = int(np.ceil(3*x_trim*num_x))
+        start_y = int(np.floor(y_trim * num_y))
+        end_y = int(np.ceil(3 * y_trim * num_y))
+        start_x = int(np.floor(x_trim * num_x))
+        end_x = int(np.ceil(3 * x_trim * num_x))
         new_num_y = end_y - start_y
         new_num_x = end_x - start_x
         y_pts_trim = y_pts[start_y:end_y]
@@ -421,7 +428,70 @@ def crop_and_mask_activity_map(activations, yx_lims, contour_dataset, mask=False
                     image = activations[target_neuron_id, target_plane_id, comp_plane_id, start_y:end_y, start_x:end_x].copy()
                     cv = contour_dataset['proj_comparison_vect'][target_plane_id][comp_plane_id]
                     cv_slope = cv[1] / cv[0]
-                    preproc_map[target_plane_id, comp_plane_id, ...] = iso_data.triangle_mask_image(image, yx_range, cv_slope, num_images_per_edge)
+                    preproc_map[target_plane_id, comp_plane_id, ...] = data_utils.triangle_mask_image(image, yx_range, cv_slope, num_images_per_edge)
     else:
         preproc_map = activations[:, :, :, start_y:end_y, start_x:end_x].copy()
     return preproc_map
+
+def polynomial_iso_response_curvature(model, plane_abscissae, plane_ordinates, experiment_params):
+    """
+    experiment_params (dict) with keys:
+        yx_range
+        num_images
+        image_scale
+        data_shape
+        normalize_activity_map
+        target_model_id
+        bounds
+        target
+        target_is_act
+    """
+    contour_dataset = data_utils.get_contour_dataset(
+        plane_abscissae,
+        plane_ordinates,
+        yx_range=experiment_params['yx_range'],
+        num_images=experiment_params['num_images'],
+        image_scale=experiment_params['image_scale'],
+        data_shape=experiment_params['data_shape'],
+        return_datapoints=True
+    )
+    all_datapoints = contour_dataset.pop('all_datapoints')
+    num_neurons_per_plane = 1
+    num_edge_images = int(np.sqrt(experiment_params['num_images']))
+    num_target_planes = len(contour_dataset['proj_matrix'])
+    num_comp_planes = len(contour_dataset['proj_matrix'][0])
+    out_shape = (num_neurons_per_plane, num_target_planes, num_comp_planes, num_edge_images, num_edge_images)
+    response_images = np.zeros(out_shape)
+    for neuron_id in range(num_neurons_per_plane):
+        for target_plane_id in range(num_target_planes):
+            for comp_plane_id in range(num_comp_planes):
+                datapoints = all_datapoints[target_plane_id][comp_plane_id]
+                if type(experiment_params['target_model_id']) is list:
+                    target_model_ids = experiment_params['target_model_id']
+                else:
+                    target_model_ids = [experiment_params['target_model_id']]
+                response_images[neuron_id, target_plane_id, comp_plane_id, ...] = np.squeeze(
+                    model_utils.get_contour_dataset_activations(
+                        model,
+                        contour_dataset=[[datapoints]],
+                        target_model_ids=target_model_ids,
+                        get_activation_function=model_utils.unit_activation,
+                        normalize=experiment_params['normalize_activity_map'],
+                        activation_function_kwargs={'compute_grad':False}))
+    num_y, num_x = response_images.shape[3:]
+    yx_pts = (contour_dataset['y_pts'].copy(), contour_dataset['x_pts'].copy())
+    yx_scale_factors, yx_lims = get_scale_factors(yx_pts, num_y, num_x, experiment_params['bounds'])
+    (y_scale_factor, x_scale_factor) = yx_scale_factors
+    ((start_y, end_y), (start_x, end_x)) = yx_lims
+    if experiment_params['normalize_activity_map']: # already normalized
+        preproc_resp_images = response_images[0, :, :, start_y:end_y, start_x:end_x].copy()
+    else: # need to normalize anyway for poly fit
+        preproc_resp_images = response_images[0, ...].copy()
+        preproc_resp_images = model_utils.normalize_single_neuron_activations(preproc_resp_images)
+        preproc_resp_images = preproc_resp_images[:, :, start_y:end_y, start_x:end_x].copy()
+    iso_curvatures, iso_fits, iso_contours = iso_response_curvature_poly_fits(
+        preproc_resp_images,
+        target=experiment_params['target'],
+        target_is_act=experiment_params['target_is_act'],
+        yx_scale=[y_scale_factor, x_scale_factor])
+    return contour_dataset, response_images, iso_curvatures, iso_fits, iso_contours
