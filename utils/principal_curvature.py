@@ -3,10 +3,18 @@ Utility funcions for principal curvature analysis of iso-response contours
 
 Authors: Dylan Paiton, Matthias Kümmerer
 """
+import os, sys
 
 import numpy as np
 import torch
 from tqdm import tqdm
+
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..'))
+if ROOT_DIR not in sys.path: sys.path.append(ROOT_DIR)
+
+import response_contour_analysis.utils.dataset_generation as data_utils
+import response_contour_analysis.utils.histogram_analysis as hist_funcs
+import response_contour_analysis.utils.model_handling as model_utils
 
 def vector_f(f, x, orig_shape):
     """make f operate on and return vectors"""
@@ -102,6 +110,7 @@ def taylor_approximation(start_point, new_point, activation, gradient, hessian):
     approx_output = f0 + f1 + (f2/2)
     return approx_output
 
+
 def hessian_approximate_response(f, points, hessian):
     """
     Parameters:
@@ -117,7 +126,49 @@ def hessian_approximate_response(f, points, hessian):
         approx_output = taylor_approximation(points[0, ...], x_k, f_0, gradient_0[:, None], hessian)
         approx_responses[stim_idx] = approx_output
     return approx_responses
-                               
+
+
+def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_params, verbose=False):
+    '''
+    TODO: allow user to specify a smaller window of images to compute error on
+    '''
+    plane_absissa = [data_utils.l2_normalize(abscissa)] # horizontal axes for the planes
+    plane_ordinate = [data_utils.l2_normalize(ordinate)] # vertical axes for the planes
+    experiment_params['normalize_activity_map'] = False
+    contour_dataset, response_images, iso_curvatures, iso_fits, iso_contours = hist_funcs.polynomial_iso_response_curvature(
+        model, plane_absissa, plane_ordinate, experiment_params)
+    neuron_id = target_plane_id = comp_plane_id = 0
+    yx_pts = (contour_dataset['y_pts'].copy(), contour_dataset['x_pts'].copy())
+    proj_vects = (
+        contour_dataset['proj_target_vect'][target_plane_id][comp_plane_id],
+        contour_dataset['proj_comparison_vect'][target_plane_id][comp_plane_id],
+        contour_dataset['proj_orth_vect'][target_plane_id][comp_plane_id],
+    )
+    response_image = torch.from_numpy(response_images[neuron_id, target_plane_id, comp_plane_id, ...]).to(experiment_params['device'])
+    num_images_per_edge = int(np.sqrt(experiment_params['num_images']))
+    cv_slope = proj_vects[1][1] / proj_vects[1][0]
+    stim_images = data_utils.inject_data(
+        contour_dataset['proj_matrix'][target_plane_id][comp_plane_id],
+        contour_dataset['proj_datapoints'],
+        experiment_params['image_scale'],
+        experiment_params['data_shape']
+    )
+    torch_stim_images = torch.from_numpy(stim_images).to(experiment_params['device'])
+    num_images_per_edge = int(np.sqrt(experiment_params['num_images']))
+    #stim_images = stim_images.reshape(num_images_per_edge, num_images_per_edge, *stim_images.shape[1:])
+    act_func = lambda x: model_utils.unit_activation_and_gradient(model, x, experiment_params['target_model_id'])
+    activation, gradient = act_func(image)
+    activation = activation.item()
+    gradient = gradient.flatten()[:, None]
+    approx_response_image = hessian_approximate_response(act_func, torch_stim_images, hessian)
+    approx_response_image = approx_response_image.reshape(num_images_per_edge, num_images_per_edge)
+    approx_error = (response_image - approx_response_image)
+    if verbose:
+        return (response_image, approx_response_image, stim_images, yx_pts, proj_vects, iso_curvatures)
+    else:
+        return approx_error
+
+
 def local_response_curvature(pt_grad, pt_hess):
     """
     Returns the shape operator, principal directions, principal curvature 
@@ -141,6 +192,22 @@ def local_response_curvature(pt_grad, pt_hess):
     shape_operator = torch.linalg.solve(metric, second_fundamental)
     # Compute its eigenvector decomposition for principal curvature
     principal_curvatures, principal_directions = torch.linalg.eig(shape_operator) # no longer guaranteed to be symmetric
+    principal_curvatures = torch.real(principal_curvatures)
+    principal_directions = torch.real(principal_directions)
+    sort_indices = torch.argsort(principal_curvatures, descending=True)
+    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
+
+
+def local_response_curvature2(grad, hessian, device='cpu'):
+    '''
+    shape_operator - [M, M] dimensional array
+    principal_curvatures - [M] dimensional array of curvatures in ascending order
+    principal_directions - [M,M] dimensional array,
+        where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
+    hess should be nxn but here is n-1xn-1? or no bc it's full input space
+    '''
+    shape_operator = - hessian / torch.linalg.norm(grad)
+    principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
     principal_curvatures = torch.real(principal_curvatures)
     principal_directions = torch.real(principal_directions)
     sort_indices = torch.argsort(principal_curvatures, descending=True)
