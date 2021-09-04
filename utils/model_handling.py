@@ -7,10 +7,24 @@ Authors: Dylan Paiton, Santiago Cadena
 import torch
 import numpy as np
 
-def unit_activation(model, image, target_neuron):
+def unit_activation(model, images, target_neuron, compute_grad=True):
     model.zero_grad()
-    activations = model(image)[:, target_neuron]
-    return activations
+    if type(images) is np.ndarray:
+        numpy = True
+        device = 'cuda' if next(model.parameters()).is_cuda else 'cpu'
+        images = torch.from_numpy(images).to(device)
+    else:
+        numpy = False
+    if compute_grad:
+        activations = model(images)[:, target_neuron]
+    else:
+        with torch.no_grad():
+            activations = model(images)[:, target_neuron]
+    if numpy:
+        return activations.detach().cpu().numpy()
+    else:
+        return activations
+
 
 def unit_activation_and_gradient(model, image, target_neuron):
     if not image.requires_grad:
@@ -18,6 +32,7 @@ def unit_activation_and_gradient(model, image, target_neuron):
     activations = unit_activation(model, image, target_neuron)
     grad = torch.autograd.grad(activations, image)[0]
     return activations, grad
+
 
 def normalize_single_neuron_activations(single_neuron_activations):
     """
@@ -85,5 +100,4 @@ def get_contour_dataset_activations(model, contour_dataset, target_model_ids, ge
             activations_sub_list.append(activations)
         activations_list.append(np.stack(activations_sub_list, axis=1))
     all_activations = np.stack(activations_list, axis=1)
-    #all_activations = all_activations.transpose(axes=(2, 0, 1, 3, 4))
     return all_activations
