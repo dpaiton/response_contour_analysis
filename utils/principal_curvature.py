@@ -169,7 +169,38 @@ def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_pa
         return approx_error
 
 
+def get_shape_operator(pt_grad, pt_hess):
+    device = pt_grad.device
+    dtype = pt_grad.dtype
+    normalization_factor = torch.sqrt(torch.linalg.norm(pt_grad)**2 + 1)
+    identity_matrix = torch.eye(len(pt_grad), dtype=dtype).to(device)
+    #WORKS
+    embedding_differential = torch.zeros([len(pt_grad), len(pt_grad)+1], dtype=dtype).to(device)
+    embedding_differential[:len(pt_grad), :len(pt_grad)] = identity_matrix
+    embedding_differential[:, len(pt_grad)] = pt_grad
+    metric_tensor = torch.matmul(embedding_differential, embedding_differential.T)
+    #DOESN'T WORK
+    #metric_tensor = identity_matrix + torch.matmul(pt_grad, pt_grad.T)
+    shape_operator = - torch.linalg.solve(metric_tensor, pt_hess) / normalization_factor
+    return shape_operator
+
+
 def local_response_curvature(pt_grad, pt_hess):
+    '''
+    shape_operator - [M, M] dimensional array
+    principal_curvatures - [M] dimensional array of curvatures in ascending order
+    principal_directions - [M,M] dimensional array,
+        where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
+    '''
+    shape_operator = get_shape_operator(pt_grad, pt_hess)
+    principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
+    principal_curvatures = torch.real(principal_curvatures)
+    principal_directions = torch.real(principal_directions)
+    sort_indices = torch.argsort(principal_curvatures, descending=True)
+    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
+
+
+def local_response_curvature_golden(pt_grad, pt_hess):
     """
     Returns the shape operator, principal directions, principal curvature 
     Parameters:
@@ -177,39 +208,23 @@ def local_response_curvature(pt_grad, pt_hess):
         pt_hess [pytorch tensor] hessian matrix for the input point
     """
     device = pt_grad.device
-    # Append gradient vector as extra col to identity matrix
-    jacobian = torch.zeros([len(pt_grad), len(pt_grad)+1], dtype=pt_grad.dtype).to(device)
-    jacobian[:len(pt_grad), :len(pt_grad)] = torch.eye(len(pt_grad)).to(device)
-    jacobian[:, len(pt_grad)] = pt_grad
-    # Take inner product of this matrix with its transpose
-    metric = torch.matmul(jacobian, jacobian.T)
-    # Compute the normal vector to the manifold at the point of interest
     identity_matrix = torch.eye(len(pt_grad), dtype=pt_grad.dtype).to(device)
-    normal = torch.cat((torch.matmul(identity_matrix, pt_grad), torch.tensor([-1]).to(device)), dim=0)
+    # Append gradient vector as extra col to identity matrix
+    embedding_differential = torch.zeros([len(pt_grad), len(pt_grad)+1], dtype=pt_grad.dtype).to(device)
+    embedding_differential[:len(pt_grad), :len(pt_grad)] = identity_matrix.clone().detach()
+    embedding_differential[:, len(pt_grad)] = pt_grad
+    # Take inner product of this matrix with its transpose
+    metric_tensor = torch.matmul(embedding_differential, embedding_differential.T)
+    # Compute the normal vector to the manifold at the point of interest (equals grad F, in ambient manifold)
+    normal = torch.cat((torch.matmul(identity_matrix.clone().detach(), pt_grad), torch.tensor([-1]).to(device)), dim=0)
     unit_normal = normal / torch.linalg.norm(normal)
     # Scale Hessian by the last element of the unit normal vector
-    second_fundamental = torch.reshape(pt_hess.flatten() * unit_normal[-1], metric.shape)
+    second_fundamental = torch.reshape(pt_hess.flatten() * unit_normal[-1], metric_tensor.shape)
     # Compute matrix FF\SF
-    shape_operator = torch.linalg.solve(metric, second_fundamental)
+    shape_operator = torch.linalg.solve(metric_tensor, second_fundamental)
     # Compute its eigenvector decomposition for principal curvature
     principal_curvatures, principal_directions = torch.linalg.eig(shape_operator) # no longer guaranteed to be symmetric
     principal_curvatures = torch.real(principal_curvatures)
     principal_directions = torch.real(principal_directions)
     sort_indices = torch.argsort(principal_curvatures, descending=True)
-    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
-
-
-def local_response_curvature2(grad, hessian, device='cpu'):
-    '''
-    shape_operator - [M, M] dimensional array
-    principal_curvatures - [M] dimensional array of curvatures in ascending order
-    principal_directions - [M,M] dimensional array,
-        where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
-    hess should be nxn but here is n-1xn-1? or no bc it's full input space
-    '''
-    shape_operator = - hessian / torch.linalg.norm(grad)
-    principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
-    principal_curvatures = torch.real(principal_curvatures)
-    principal_directions = torch.real(principal_directions)
-    sort_indices = torch.argsort(principal_curvatures, descending=True)
-    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
+    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]#, second_fundamental
