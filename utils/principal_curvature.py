@@ -184,7 +184,8 @@ def local_response_curvature(pt_grad, pt_hess):
     # Take inner product of this matrix with its transpose
     metric = torch.matmul(jacobian, jacobian.T)
     # Compute the normal vector to the manifold at the point of interest
-    normal = torch.cat((torch.matmul(torch.eye(len(pt_grad), dtype=pt_grad.dtype).to(device), pt_grad), torch.tensor([-1]).to(device)), dim=0)
+    identity_matrix = torch.eye(len(pt_grad), dtype=pt_grad.dtype).to(device)
+    normal = torch.cat((torch.matmul(identity_matrix, pt_grad), torch.tensor([-1]).to(device)), dim=0)
     unit_normal = normal / torch.linalg.norm(normal)
     # Scale Hessian by the last element of the unit normal vector
     second_fundamental = torch.reshape(pt_hess.flatten() * unit_normal[-1], metric.shape)
