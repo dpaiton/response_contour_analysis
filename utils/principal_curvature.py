@@ -194,33 +194,3 @@ def local_response_curvature(pt_grad, pt_hess):
     principal_directions = torch.real(principal_directions)
     sort_indices = torch.argsort(principal_curvatures, descending=True)
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
-
-
-def local_response_curvature_golden(pt_grad, pt_hess):
-    """
-    Returns the shape operator, principal directions, principal curvature 
-    Parameters:
-        pt_grad [pytorch tensor] gradient vector for the input point
-        pt_hess [pytorch tensor] hessian matrix for the input point
-    """
-    device = pt_grad.device
-    identity_matrix = torch.eye(len(pt_grad), dtype=pt_grad.dtype).to(device)
-    # Append gradient vector as extra col to identity matrix
-    embedding_differential = torch.zeros([len(pt_grad), len(pt_grad)+1], dtype=pt_grad.dtype).to(device)
-    embedding_differential[:len(pt_grad), :len(pt_grad)] = identity_matrix.clone().detach()
-    embedding_differential[:, len(pt_grad)] = pt_grad
-    # Take inner product of this matrix with its transpose
-    metric_tensor = torch.matmul(embedding_differential, embedding_differential.T)
-    # Compute the normal vector to the manifold at the point of interest (equals grad F, in ambient manifold)
-    normal = torch.cat((torch.matmul(identity_matrix.clone().detach(), pt_grad), torch.tensor([-1]).to(device)), dim=0)
-    unit_normal = normal / torch.linalg.norm(normal)
-    # Scale Hessian by the last element of the unit normal vector
-    second_fundamental = torch.reshape(pt_hess.flatten() * unit_normal[-1], metric_tensor.shape)
-    # Compute matrix FF\SF
-    shape_operator = torch.linalg.solve(metric_tensor, second_fundamental)
-    # Compute its eigenvector decomposition for principal curvature
-    principal_curvatures, principal_directions = torch.linalg.eig(shape_operator) # no longer guaranteed to be symmetric
-    principal_curvatures = torch.real(principal_curvatures)
-    principal_directions = torch.real(principal_directions)
-    sort_indices = torch.argsort(principal_curvatures, descending=True)
-    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]#, second_fundamental
