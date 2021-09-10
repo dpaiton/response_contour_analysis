@@ -172,15 +172,11 @@ def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_pa
 def get_shape_operator(pt_grad, pt_hess):
     device = pt_grad.device
     dtype = pt_grad.dtype
+    if pt_grad.ndim == 1:
+        pt_grad = pt_grad[:, None] # row vector
     normalization_factor = torch.sqrt(torch.linalg.norm(pt_grad)**2 + 1)
     identity_matrix = torch.eye(len(pt_grad), dtype=dtype).to(device)
-    #WORKS
-    embedding_differential = torch.zeros([len(pt_grad), len(pt_grad)+1], dtype=dtype).to(device)
-    embedding_differential[:len(pt_grad), :len(pt_grad)] = identity_matrix
-    embedding_differential[:, len(pt_grad)] = pt_grad
-    metric_tensor = torch.matmul(embedding_differential, embedding_differential.T)
-    #DOESN'T WORK
-    #metric_tensor = identity_matrix + torch.matmul(pt_grad, pt_grad.T)
+    metric_tensor = identity_matrix + torch.matmul(pt_grad, pt_grad.T)
     shape_operator = - torch.linalg.solve(metric_tensor, pt_hess) / normalization_factor
     return shape_operator
 
