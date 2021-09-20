@@ -29,7 +29,7 @@ def unit_activation(model, images, target_neuron, compute_grad=True):
 def unit_activation_and_gradient(model, image, target_neuron):
     if not image.requires_grad:
         image.requires_grad = True
-    activations = unit_activation(model, image, target_neuron)
+    activations = unit_activation(model, image, target_neuron, compute_grad=True)
     grad = torch.autograd.grad(activations, image)[0]
     return activations, grad
 
