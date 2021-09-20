@@ -28,7 +28,8 @@ def sr1_hessian_iter(f, point, distance, n_points, initial_scale=1e-6, random_wa
     """
     # We initialize with a hessian matrix with slight positive curvature
     device = point.device
-    hessian_approximation = torch.eye(np.prod(point.shape), device=device) * initial_scale
+    dtype = point.type()
+    hessian_approximation = (torch.eye(np.prod(point.shape), device=device) * initial_scale).type(dtype)
     x_0 = point.flatten() # we need the data points as vectors
     f0, gradient_0 = vector_f(f, x_0, point.shape)
     x_k_minus_1 = x_0
@@ -171,7 +172,9 @@ def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_pa
 
 def get_shape_operator(pt_grad, pt_hess):
     device = pt_grad.device
-    dtype = pt_grad.dtype
+    dtype = torch.double
+    pt_grad = pt_grad.type(dtype)
+    pt_hess = pt_hess.type(dtype)
     if pt_grad.ndim == 1:
         pt_grad = pt_grad[:, None] # row vector
     normalization_factor = torch.sqrt(torch.linalg.norm(pt_grad)**2 + 1)
@@ -188,9 +191,10 @@ def local_response_curvature(pt_grad, pt_hess):
     principal_directions - [M,M] dimensional array,
         where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
     '''
+    dtype = pt_grad.dtype
     shape_operator = get_shape_operator(pt_grad, pt_hess)
     principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
-    principal_curvatures = torch.real(principal_curvatures)
-    principal_directions = torch.real(principal_directions)
+    principal_curvatures = torch.real(principal_curvatures).type(dtype)
+    principal_directions = torch.real(principal_directions).type(dtype)
     sort_indices = torch.argsort(principal_curvatures, descending=True)
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
