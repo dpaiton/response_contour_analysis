@@ -433,7 +433,7 @@ def crop_and_mask_activity_map(activations, yx_lims, contour_dataset, mask=False
         preproc_map = activations[:, :, :, start_y:end_y, start_x:end_x].copy()
     return preproc_map
 
-def polynomial_iso_response_curvature(model, plane_abscissae, plane_ordinates, experiment_params):
+def polynomial_iso_response_curvature(model, plane_abscissae, plane_ordinates, experiment_params, act_func=None):
     """
     experiment_params (dict) with keys:
         yx_range
@@ -446,6 +446,8 @@ def polynomial_iso_response_curvature(model, plane_abscissae, plane_ordinates, e
         target
         target_is_act
     """
+    if act_func is None:
+        act_func = model_utils.unit_activation
     contour_dataset = data_utils.get_contour_dataset(
         plane_abscissae,
         plane_ordinates,
@@ -475,7 +477,7 @@ def polynomial_iso_response_curvature(model, plane_abscissae, plane_ordinates, e
                         model,
                         contour_dataset=[[datapoints]],
                         target_model_ids=target_model_ids,
-                        get_activation_function=model_utils.unit_activation,
+                        get_activation_function=act_func,
                         normalize=experiment_params['normalize_activity_map'],
                         activation_function_kwargs={'compute_grad':False}))
     num_y, num_x = response_images.shape[3:]
