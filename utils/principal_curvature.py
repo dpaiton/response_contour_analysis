@@ -232,15 +232,14 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
             pt_hess_aa + 
             pt_hess_ab * grad_g.T
         ) +
-        (1 / pt_grad_b **2) * pt_grad_a.T * (
+        (1 / pt_grad_b **2) * pt_grad_a * (
             pt_hess_ab.T +
             pt_hess_bb * grad_g.T
         )
     )
 
     print("hess g", hess_g.shape)
-    print(hess_g)
-    print(hess_g - hess_g.T)
+    print(torch.max(torch.abs(hess_g - hess_g.T)))
 
 
     normalization_factor = torch.sqrt(torch.linalg.norm(grad_g)**2 + 1)
