@@ -212,19 +212,19 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     if torch.abs(pt_grad_b[0, 0]) < 1e-7:
         # this should never happen in DNN cases
         print('close to singular gradient, you might need a different coordinate system', pt_grad_b)
-    print('gradient', pt_grad_b)
+    #print('gradient', pt_grad_b)
 
     grad_g = -pt_grad_a / pt_grad_b
 
-    print("pt_grad", pt_grad.shape)
-    print("pt_hess", pt_hess.shape)
+    #print("pt_grad", pt_grad.shape)
+    #print("pt_hess", pt_hess.shape)
     
-    print("pt_grad_a", pt_grad_a.shape)
-    print("pt_grad_b", pt_grad_b.shape)
-    print("pt_hess_aa", pt_hess_aa.shape)
-    print("pt_hess_ab", pt_hess_ab.shape)
-    print("pt_hess_bb", pt_hess_bb.shape)
-    print("grad g", grad_g.shape)
+    ##print("pt_grad_a", pt_grad_a.shape)
+    #print("pt_grad_b", pt_grad_b.shape)
+    #print("pt_hess_aa", pt_hess_aa.shape)
+    #print("pt_hess_ab", pt_hess_ab.shape)
+    #print("pt_hess_bb", pt_hess_bb.shape)
+    #print("grad g", grad_g.shape)
     
 
     hess_g = (
@@ -238,8 +238,8 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
         )
     )
 
-    print("hess g", hess_g.shape)
-    print(torch.max(torch.abs(hess_g - hess_g.T)))
+    #print("hess g", hess_g.shape)
+    #print(torch.max(torch.abs(hess_g - hess_g.T)))
 
 
     normalization_factor = torch.sqrt(torch.linalg.norm(grad_g)**2 + 1)
@@ -307,9 +307,9 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess):
         grad_g.T
     ))
 
-    print("d_i", embedding_differential.shape)
+    #print("d_i", embedding_differential.shape)
     principal_directions = torch.matmul(embedding_differential, principal_directions)
-    print("princ directions", principal_directions.shape)
+    #print("princ directions", principal_directions.shape)
     
 
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
