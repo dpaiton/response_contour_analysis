@@ -198,7 +198,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     
     # make sure that our normal points in the direction of the function gradient
     pt_grad = pt_grad.clone()
-    pt_grad[-1] = -torch.abs(pt_grad[-1])
+    #pt_grad[-1] = -torch.abs(pt_grad[-1])
     
     # compute grad of implicit function g: a=(x_0, ... x_{n-2}) \to b=x_{n-1} (zero-indexed)
     # this will gives us an coordinate system of the iso response surface in the coordinates
@@ -223,7 +223,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     #print('gradient', pt_grad_b)
 
     grad_g = -pt_grad_a / pt_grad_b
-
+    
     #print("pt_grad", pt_grad.shape)
     #print("pt_hess", pt_hess.shape)
     
@@ -246,6 +246,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     #     )
     # )
 
+    # same equation as above, but more efficient
     hess_g = (-1 / pt_grad_b) * (
         torch.diag(pt_hess_ab.reshape(-1)) * (grad_g + grad_g.T)
         +
@@ -256,6 +257,12 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
 
     #print("hess g", hess_g)
     #print("non-symmetricity:", torch.max(torch.abs(hess_g - hess_g.T)))
+
+
+    if pt_grad_b > 0:
+        # make sure the normal points in the right direction
+        grad_g = -grad_g
+        hess_g = -hess_g
 
 
     normalization_factor = torch.sqrt(torch.linalg.norm(grad_g)**2 + 1)
@@ -311,12 +318,18 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess):
     #principal_directions = torch.real(principal_directions).type(dtype)
     sort_indices = torch.argsort(principal_curvatures, descending=True)
 
+    # TODO: do we also need to flip a sign here?
+
     # push directions forward to embedding space
     pt_grad_a = pt_grad[:-1]
     pt_grad_b = pt_grad[-1]
 
     # zero has already been checked in shape operator
-    grad_g = -pt_grad_a / pt_grad_b    
+    grad_g = -pt_grad_a / pt_grad_b
+    # here we don't need a sign flip, since we need the real x_n,
+    # not the flipped one
+    #if pt_grad_b > 0:
+    #    grad_g = -grad_g
 
     embedding_differential = torch.vstack((
         torch.eye(len(grad_g)).to(device),
