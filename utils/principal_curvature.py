@@ -192,6 +192,10 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     if pt_grad.ndim == 1:
         pt_grad = pt_grad[:, None] # row vector
     
+    # make sure that our normal points in the direction of the function gradient
+    pt_grad = pt_grad.clone()
+    pt_grad[-1] = -torch.abs(pt_grad[-1])
+    
     # compute grad of implicit function g: a=(x_0, ... x_{n-2}) \to b=x_{n-1} (zero-indexed)
     # this will gives us an coordinate system of the iso response surface in the coordinates
     # x_0, ... x_{n-2}
