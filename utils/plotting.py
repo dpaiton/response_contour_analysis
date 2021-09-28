@@ -318,7 +318,7 @@ def plot_contours(ax, activity, yx_pts, yx_range, proj_vects=None, num_levels=10
     return contsf
 
 
-def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, vmin=None, vmax=None):
+def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, arrowprops=None, vmin=None, vmax=None):
     """
     ax [matplotlib axis]
     images [np.ndarray] of shape [num_images_per_edge, num_images_per_edge, channels, height, weidth] images for each mesh point
@@ -342,16 +342,19 @@ def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, vmin=None, vmax=No
     imagebox = OffsetImage(arr_img, zoom=0.75, cmap='Gray')
     img = imagebox.get_children()[0]; img.set_clim(vmin=vmin, vmax=vmax)
     imagebox.image.axes = ax
+    if arrowprops is None:
+        arrowprops = dict(
+            linestyle='--',
+            arrowstyle='->',
+            color='r'
+        )
     ab = AnnotationBbox(imagebox,
         xy=[x_pos, y_pos],
         xybox=offset,
         xycoords=ax.transData,
         boxcoords='offset points',
         pad=0.0,
-        arrowprops=dict(
-            linestyle='--',
-            arrowstyle='->',
-            color='r'
-    ))
+        arrowprops=arrowprops
+    )
     ax.add_artist(ab)
     return arr_img

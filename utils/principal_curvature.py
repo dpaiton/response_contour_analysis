@@ -22,9 +22,10 @@ def vector_f(f, x, orig_shape):
     value, gradient = f(x)
     return value.item(), gradient.flatten()
 
-def sr1_hessian_iter(f, point, distance, n_points, initial_scale=1e-6, random_walk=True, learning_rate=1.0, r=1e-8, return_points=False, progress=True):
+def sr1_hessian_iter(f, point, distance, n_points, initial_scale=1e-6, random_walk=True, learning_rate=1.0, r=1e-8, lr_decay=False, return_points=False, progress=True):
     """
     Generator for SR1 approximation of hessian. See sr1_hessian docs for more information
+    TODO: Add LR decay
     """
     # We initialize with a hessian matrix with slight positive curvature
     device = point.device
@@ -39,6 +40,8 @@ def sr1_hessian_iter(f, point, distance, n_points, initial_scale=1e-6, random_wa
     else:
         gen = range(n_points)
     for i in gen:
+        if lr_decay and i == n_points//2:
+            learning_rate = learning_rate * 0.1
         x_k = x_0 + torch.randn(len(x_k_minus_1), device=device) / np.sqrt(len(x_k_minus_1)) * distance
         delta_x_k = x_k - x_k_minus_1
         f_k, gradient_k = vector_f(f, x_k, point.shape)
@@ -90,6 +93,7 @@ def sr1_hessian(f, point, distance, n_points, **kwargs):
         return sr1_output[0], output_points
     else:
         return sr1_output
+
 
 def taylor_approximation(start_point, new_point, activation, gradient, hessian):
     '''
@@ -261,7 +265,6 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     return shape_operator
 
 
-
 def local_response_curvature_graph(pt_grad, pt_hess):
     '''
     shape_operator - [M, M] dimensional array
@@ -271,16 +274,17 @@ def local_response_curvature_graph(pt_grad, pt_hess):
     '''
     dtype = pt_grad.dtype
     shape_operator = get_shape_operator_graph(pt_grad, pt_hess)
+    
     # FIXME: workaround for missing torch.linalg.eig
-    #principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
     principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
     principal_curvatures = np.real(principal_curvatures).astype(np.double)
     principal_directions = np.real(principal_directions).astype(np.double)
-    
     principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype)
     principal_directions = torch.tensor(principal_directions, dtype=dtype)
+    #principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
     #principal_curvatures = torch.real(principal_curvatures).type(dtype)
     #principal_directions = torch.real(principal_directions).type(dtype)
+    
     sort_indices = torch.argsort(principal_curvatures, descending=True)
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
 
