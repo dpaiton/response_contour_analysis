@@ -6,6 +6,7 @@ Authors: Dylan Paiton, Matthias Kümmerer
 import os, sys
 
 import numpy as np
+from scipy.linalg import orth
 import torch
 from tqdm import tqdm
 
@@ -296,8 +297,15 @@ def local_response_curvature_graph(pt_grad, pt_hess):
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
 
 
-def local_response_curvature_isoresponse_surface(pt_grad, pt_hess):
+def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_subspace_of_interest=None):
     '''
+    Arguments:
+      pt_grad: defining function gradient
+      pt_hess: defining function hessian
+      projection_subspace_of_interest: [k, M] matrix. projection from ambient space to a subspace for which we are interested
+        in the curvature. Curvature will be computed for the projection of the subspace of interest
+        into the isoresponse surface.
+
     shape_operator - [M-1, M-1] dimensional array
     principal_curvatures - [M-1] dimensional array of curvatures in ascending order
     principal_directions - [M,M-1] dimensional array,
@@ -306,6 +314,16 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess):
     dtype = pt_grad.dtype
     device = pt_grad.device
     shape_operator = get_shape_operator_isoresponse_surface(pt_grad, pt_hess)
+
+    if projection_subspace_of_interest is not None:
+        projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(torch.double)
+        projection_from_isosurface = orth(projection_from_isosurface.detach().cpu().numpy().T).T
+        projection_from_isosurface = torch.tensor(projection_from_isosurface, dtype=torch.double, device=device)
+        # restrict shape operator to subspace of interest. This is the correct endomorphism for the restriced second fundamental form,
+        # since the first projection cancels with the
+        # transposed projection that is part of the restricted metric.
+        shape_operator = torch.matmul(torch.matmul(projection_from_isosurface, shape_operator), projection_from_isosurface.T)
+
     # FIXME: workaround for missing torch.linalg.eig
     #principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
     principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
@@ -318,7 +336,8 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess):
     #principal_directions = torch.real(principal_directions).type(dtype)
     sort_indices = torch.argsort(principal_curvatures, descending=True)
 
-    # TODO: do we also need to flip a sign here?
+    if projection_subspace_of_interest is not None:
+        principal_directions = torch.matmul(projection_from_isosurface.T.type(dtype), principal_directions)
 
     # push directions forward to embedding space
     pt_grad_a = pt_grad[:-1]
