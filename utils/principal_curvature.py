@@ -317,6 +317,8 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
 
     if projection_subspace_of_interest is not None:
         projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(torch.double)
+        # even if the projection was orthogonal originally, after we deleted the last column it might not be anymore
+        # therefore we have to reorthogonalize
         projection_from_isosurface = orth(projection_from_isosurface.detach().cpu().numpy().T).T
         projection_from_isosurface = torch.tensor(projection_from_isosurface, dtype=torch.double, device=device)
         # restrict shape operator to subspace of interest. This is the correct endomorphism for the restriced second fundamental form,
