@@ -71,7 +71,7 @@ def iso_response_curvature_poly_fits(activations, target, target_is_act=True, yx
                     print(
                         f'WARNING: iso_response_curvature_poly_fits: '
                         +'maximum value of activations for '
-                        +f'neuron_index={neuron_id}, comparison_index={plane_id}, is {activity.max}'
+                        +f'neuron_index={neuron_id}, comparison_index={plane_id}, is {activity.max()}'
                     )
                     sub_contours.append(np.nan)
                     sub_curvatures.append(np.nan)
