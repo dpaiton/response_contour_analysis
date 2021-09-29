@@ -192,7 +192,7 @@ def get_shape_operator_graph(pt_grad, pt_hess):
     return shape_operator
 
 
-def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
+def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=None):
     """
     compute grad of implicit function g: a=(x_0, ... x_{n-2}) \to b=x_{n-1} (zero-indexed)
     this will gives us a coordinate system of the iso response surface in the coordinates
@@ -204,6 +204,18 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     pt_hess = pt_hess.type(dtype)
     if pt_grad.ndim == 1:
         pt_grad = pt_grad[:, None] # row vector
+
+    # transformation _to_ new coordinates
+    if coordinate_transformation is None:
+        coordinate_transformation = torch.eye(len(pt_grad), dtype=dtype, device=device)
+    else:
+        coordinate_transformation = coordinate_transformation.type(dtype)
+
+    pt_grad = torch.matmul(coordinate_transformation, pt_grad)
+    pt_hess = torch.matmul(
+        coordinate_transformation.T,
+        torch.matmul(pt_hess, coordinate_transformation)
+    )
     
     # first let's define some variables for convenience
     pt_grad_a = pt_grad[:-1]
@@ -226,6 +238,8 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
         torch.eye(len(grad_g)).to(device),
         grad_g.T
     ))
+
+    embedding_differential = torch.matmul(coordinate_transformation.T, embedding_differential)
     
     hess_g = (-1 / pt_grad_b) * (
         torch.diag(pt_hess_ab.reshape(-1)) * (grad_g + grad_g.T)
@@ -244,6 +258,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     identity_matrix = torch.eye(len(grad_g), dtype=dtype).to(device)
     metric_tensor = identity_matrix + torch.matmul(grad_g, grad_g.T)
     shape_operator = - torch.linalg.solve(metric_tensor, hess_g) / normalization_factor
+
     return shape_operator, embedding_differential
 
 
@@ -271,7 +286,7 @@ def local_response_curvature_graph(pt_grad, pt_hess):
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
 
 
-def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_subspace_of_interest=None):
+def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_subspace_of_interest=None, coordinate_transformation=None):
     '''
     Arguments:
       pt_grad: defining function gradient
@@ -279,6 +294,8 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
       projection_subspace_of_interest: [k, M] matrix. projection from ambient space to a subspace for which we are interested
         in the curvature. Curvature will be computed for the projection of the subspace of interest
         into the isoresponse surface.
+      coordinate_transformation: orthogonal [M, M] matrix from input space into a new coordinate system. The last coordinate will
+        be used to parametrize the decision boundary
 
     shape_operator - [M-1, M-1] dimensional array
     principal_curvatures - [M-1] dimensional array of curvatures in ascending order
@@ -287,7 +304,7 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     '''
     dtype = pt_grad.dtype
     device = pt_grad.device
-    shape_operator, embedding_differential = get_shape_operator_isoresponse_surface(pt_grad, pt_hess)
+    shape_operator, embedding_differential = get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
     if projection_subspace_of_interest is not None:
         projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(torch.double)
         # even if the projection was orthogonal originally, after we deleted the last column it might not be anymore
