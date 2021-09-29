@@ -473,6 +473,7 @@ def get_contour_dataset(target_vectors, comparison_vectors, yx_range, num_images
     else:
         assert False, ('comparison vectors must be of type "list of list" or "list of np.ndarray", not "%s"'%(type(comparison_vectors)))
     for target_vect, target_comp_vects in target_comp_zip:
+        target_vect = np.squeeze(target_vect)
         orth_vect_sub_list = []
         proj_target_vect_sub_list = []
         proj_comparison_vect_sub_list = []
