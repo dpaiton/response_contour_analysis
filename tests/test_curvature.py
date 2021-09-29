@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import ortho_group
 import torch
 
 import utils.principal_curvature as curve_utils
@@ -62,3 +63,20 @@ def test_coordinate_transform_sphere(dimensions, radius):
 
     expected_gaussian_curvature = 1 / (radius ** (dimensions - 1))
     np.testing.assert_allclose(np.abs(np.prod(iso_curvatures)), expected_gaussian_curvature)
+
+
+def test_coordinate_transform():
+    f = QuadraticFunction(np.array([1.0, 2.0, 0.1, 0.5])).to(DEVICE)
+    point = torch.tensor(np.hstack((np.zeros(3), [1]))).to(DEVICE)
+    #f = QuadraticFunction(np.array([1.0, 2.0])).to(DEVICE)
+    #point = torch.tensor(np.hstack((np.zeros(1), [1]))).to(DEVICE)
+    value, pt_grad, pt_hess = value_grad_hess(f, point)
+    
+    iso_shape_operator1, iso_curvatures1, iso_directions1 = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess)
+    iso_curvatures1 = iso_curvatures1.detach().cpu().numpy()
+
+    coordinate_transformation = torch.tensor(ortho_group.rvs(len(point)), dtype=torch.double).to(DEVICE)
+    iso_shape_operator2, iso_curvatures2, iso_directions2 = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
+    iso_curvatures2 = iso_curvatures2.detach().cpu().numpy()
+
+    np.testing.assert_allclose(iso_curvatures1, iso_curvatures2)

@@ -213,8 +213,8 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
 
     pt_grad = torch.matmul(coordinate_transformation, pt_grad)
     pt_hess = torch.matmul(
-        coordinate_transformation.T,
-        torch.matmul(pt_hess, coordinate_transformation)
+        coordinate_transformation,
+        torch.matmul(pt_hess, coordinate_transformation.T)
     )
     
     # first let's define some variables for convenience
@@ -259,7 +259,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     metric_tensor = identity_matrix + torch.matmul(grad_g, grad_g.T)
     shape_operator = - torch.linalg.solve(metric_tensor, hess_g) / normalization_factor
 
-    return shape_operator, embedding_differential
+    return shape_operator, embedding_differential, metric_tensor
 
 
 def local_response_curvature_graph(pt_grad, pt_hess):
@@ -304,7 +304,7 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     '''
     dtype = pt_grad.dtype
     device = pt_grad.device
-    shape_operator, embedding_differential = get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
+    shape_operator, embedding_differential, metric_tensor = get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
     if projection_subspace_of_interest is not None:
         projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(torch.double)
         # even if the projection was orthogonal originally, after we deleted the last column it might not be anymore
@@ -328,9 +328,16 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     
     sort_indices = torch.argsort(principal_curvatures, descending=True)
 
+    # we need to norm the directions wrt to the metric, not the canonical scalar product
+    _metric_tensor = metric_tensor.type(dtype)
+    direction_norms = torch.tensor([
+        torch.dot(direction, torch.matmul(_metric_tensor, direction)) for direction in principal_directions.T
+    ], dtype=dtype, device=device)
+    principal_directions /= torch.sqrt(direction_norms)[None, :]
+
     if projection_subspace_of_interest is not None:
         principal_directions = torch.matmul(projection_from_isosurface.T.type(dtype), principal_directions)
 
-    principal_directions = torch.matmul(embedding_differential, principal_directions)
+    principal_directions = torch.matmul(embedding_differential.type(principal_directions.dtype), principal_directions)
     
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
