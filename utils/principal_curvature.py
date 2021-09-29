@@ -221,6 +221,11 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
         print('close to singular gradient, you might need a different coordinate system', pt_grad_b)
 
     grad_g = -pt_grad_a / pt_grad_b
+
+    embedding_differential = torch.vstack((
+        torch.eye(len(grad_g)).to(device),
+        grad_g.T
+    ))
     
     hess_g = (-1 / pt_grad_b) * (
         torch.diag(pt_hess_ab.reshape(-1)) * (grad_g + grad_g.T)
@@ -239,7 +244,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     identity_matrix = torch.eye(len(grad_g), dtype=dtype).to(device)
     metric_tensor = identity_matrix + torch.matmul(grad_g, grad_g.T)
     shape_operator = - torch.linalg.solve(metric_tensor, hess_g) / normalization_factor
-    return shape_operator
+    return shape_operator, embedding_differential
 
 
 def local_response_curvature_graph(pt_grad, pt_hess):
@@ -282,7 +287,7 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     '''
     dtype = pt_grad.dtype
     device = pt_grad.device
-    shape_operator = get_shape_operator_isoresponse_surface(pt_grad, pt_hess)
+    shape_operator, embedding_differential = get_shape_operator_isoresponse_surface(pt_grad, pt_hess)
     if projection_subspace_of_interest is not None:
         projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(torch.double)
         # even if the projection was orthogonal originally, after we deleted the last column it might not be anymore
@@ -309,17 +314,6 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     if projection_subspace_of_interest is not None:
         principal_directions = torch.matmul(projection_from_isosurface.T.type(dtype), principal_directions)
 
-    # push directions forward to embedding space
-    pt_grad_a = pt_grad[:-1]
-    pt_grad_b = pt_grad[-1]
-
-    # zero has already been checked in shape operator
-    grad_g = -pt_grad_a / pt_grad_b
-
-    embedding_differential = torch.vstack((
-        torch.eye(len(grad_g)).to(device),
-        grad_g.T
-    ))
     principal_directions = torch.matmul(embedding_differential, principal_directions)
     
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
