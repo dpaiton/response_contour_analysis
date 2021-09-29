@@ -17,11 +17,13 @@ import response_contour_analysis.utils.dataset_generation as data_utils
 import response_contour_analysis.utils.histogram_analysis as hist_funcs
 import response_contour_analysis.utils.model_handling as model_utils
 
+
 def vector_f(f, x, orig_shape):
     """make f operate on and return vectors"""
     x = x.reshape(orig_shape)
     value, gradient = f(x)
     return value.item(), gradient.flatten()
+
 
 def sr1_hessian_iter(f, point, distance, n_points, initial_scale=1e-6, random_walk=True, learning_rate=1.0, r=1e-8, lr_decay=False, return_points=False, progress=True):
     """
@@ -64,6 +66,7 @@ def sr1_hessian_iter(f, point, distance, n_points, initial_scale=1e-6, random_wa
         if random_walk:
             x_k_minus_1 = x_k
             gradient_k_minus_1 = gradient_k
+
 
 def sr1_hessian(f, point, distance, n_points, **kwargs):
     """
@@ -190,6 +193,11 @@ def get_shape_operator_graph(pt_grad, pt_hess):
 
 
 def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
+    """
+    compute grad of implicit function g: a=(x_0, ... x_{n-2}) \to b=x_{n-1} (zero-indexed)
+    this will gives us a coordinate system of the iso response surface in the coordinates
+    x_0, ... x_{n-2}
+    """
     device = pt_grad.device
     dtype = torch.double
     pt_grad = pt_grad.type(dtype)
@@ -197,16 +205,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     if pt_grad.ndim == 1:
         pt_grad = pt_grad[:, None] # row vector
     
-    # make sure that our normal points in the direction of the function gradient
-    pt_grad = pt_grad.clone()
-    #pt_grad[-1] = -torch.abs(pt_grad[-1])
-    
-    # compute grad of implicit function g: a=(x_0, ... x_{n-2}) \to b=x_{n-1} (zero-indexed)
-    # this will gives us an coordinate system of the iso response surface in the coordinates
-    # x_0, ... x_{n-2}
-
     # first let's define some variables for convenience
-
     pt_grad_a = pt_grad[:-1]
     pt_grad_b = pt_grad[-1:]
 
@@ -214,40 +213,15 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
     pt_hess_ab = pt_hess[:-1, -1:]
     pt_hess_bb = pt_hess[-1:, -1:]
     
-    
     if pt_grad_b == 0:
         # this should never happen in DNN cases
         raise ValueError('singular gradient, you need a different coordinate system')
     if torch.abs(pt_grad_b[0, 0]) < 1e-7:
         # this should never happen in DNN cases
         print('close to singular gradient, you might need a different coordinate system', pt_grad_b)
-    #print('gradient', pt_grad_b)
 
     grad_g = -pt_grad_a / pt_grad_b
     
-    #print("pt_grad", pt_grad.shape)
-    #print("pt_hess", pt_hess.shape)
-    
-    # print("pt_grad_a", pt_grad_a.shape)
-    # print("pt_grad_b", pt_grad_b.shape)
-    # print("pt_hess_aa", pt_hess_aa.shape)
-    # print("pt_hess_ab", pt_hess_ab.shape)
-    # print("pt_hess_bb", pt_hess_bb.shape)
-    # print("grad g", grad_g.shape)
-    
-
-    # hess_g = (
-    #     (-1 / pt_grad_b) * (
-    #         pt_hess_aa + 
-    #         pt_hess_ab.T * grad_g.T
-    #     ) +
-    #     (1 / pt_grad_b ** 2) * pt_grad_a * (
-    #         pt_hess_ab.T +
-    #         pt_hess_bb * grad_g.T
-    #     )
-    # )
-
-    # same equation as above, but more efficient
     hess_g = (-1 / pt_grad_b) * (
         torch.diag(pt_hess_ab.reshape(-1)) * (grad_g + grad_g.T)
         +
@@ -256,15 +230,10 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess):
         pt_hess_aa
     )
 
-    #print("hess g", hess_g)
-    #print("non-symmetricity:", torch.max(torch.abs(hess_g - hess_g.T)))
-
-
     if pt_grad_b > 0:
         # make sure the normal points in the right direction
         grad_g = -grad_g
         hess_g = -hess_g
-
 
     normalization_factor = torch.sqrt(torch.linalg.norm(grad_g)**2 + 1)
     identity_matrix = torch.eye(len(grad_g), dtype=dtype).to(device)
@@ -314,7 +283,6 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     dtype = pt_grad.dtype
     device = pt_grad.device
     shape_operator = get_shape_operator_isoresponse_surface(pt_grad, pt_hess)
-
     if projection_subspace_of_interest is not None:
         projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(torch.double)
         # even if the projection was orthogonal originally, after we deleted the last column it might not be anymore
@@ -322,20 +290,20 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
         projection_from_isosurface = orth(projection_from_isosurface.detach().cpu().numpy().T).T
         projection_from_isosurface = torch.tensor(projection_from_isosurface, dtype=torch.double, device=device)
         # restrict shape operator to subspace of interest. This is the correct endomorphism for the restriced second fundamental form,
-        # since the first projection cancels with the
-        # transposed projection that is part of the restricted metric.
+        # since the first projection cancels with the transposed projection that is part of the restricted metric.
         shape_operator = torch.matmul(torch.matmul(projection_from_isosurface, shape_operator), projection_from_isosurface.T)
 
     # FIXME: workaround for missing torch.linalg.eig
     #principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
+    #principal_curvatures = torch.real(principal_curvatures).type(dtype)
+    #principal_directions = torch.real(principal_directions).type(dtype)
+    
     principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
     principal_curvatures = np.real(principal_curvatures).astype(np.double)
     principal_directions = np.real(principal_directions).astype(np.double)
-    
     principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype).to(device)
     principal_directions = torch.tensor(principal_directions, dtype=dtype).to(device)
-    #principal_curvatures = torch.real(principal_curvatures).type(dtype)
-    #principal_directions = torch.real(principal_directions).type(dtype)
+    
     sort_indices = torch.argsort(principal_curvatures, descending=True)
 
     if projection_subspace_of_interest is not None:
@@ -347,19 +315,11 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
 
     # zero has already been checked in shape operator
     grad_g = -pt_grad_a / pt_grad_b
-    # here we don't need a sign flip, since we need the real x_n,
-    # not the flipped one
-    #if pt_grad_b > 0:
-    #    grad_g = -grad_g
 
     embedding_differential = torch.vstack((
         torch.eye(len(grad_g)).to(device),
         grad_g.T
     ))
-
-    #print("d_i", embedding_differential.shape)
     principal_directions = torch.matmul(embedding_differential, principal_directions)
-    #print("princ directions", principal_directions.shape)
     
-
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
