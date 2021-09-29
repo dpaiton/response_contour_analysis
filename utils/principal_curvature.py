@@ -211,7 +211,10 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     else:
         coordinate_transformation = coordinate_transformation.type(dtype)
 
-    pt_grad = torch.matmul(coordinate_transformation, pt_grad)
+    print(pt_grad)
+    pt_grad = torch.matmul(coordinate_transformation.T, pt_grad)
+    print(pt_grad)
+    
     pt_hess = torch.matmul(
         coordinate_transformation,
         torch.matmul(pt_hess, coordinate_transformation.T)
@@ -232,6 +235,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
         # this should never happen in DNN cases
         print('close to singular gradient, you might need a different coordinate system', pt_grad_b)
 
+    # g is the implicit function from x_1, x_{n-1} to x_n
     grad_g = -pt_grad_a / pt_grad_b
 
     embedding_differential = torch.vstack((
