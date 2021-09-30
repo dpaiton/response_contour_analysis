@@ -26,12 +26,16 @@ class QuadraticFunction(torch.nn.Module):
         return torch.dot(x, torch.matmul(self.hessian, x))
 
 
-def hyperboloid_eq(x_vals, y_vals, a, c):
+def hyperboloid_graph(x_vals, y_vals, a, c):
     z_sq = c**2 * (x_vals**2 / a**2 + y_vals**2 / a**2 - 1)
     if type(x_vals) == type(torch.Tensor()):
         return torch.sqrt_(z_sq)
     else:
         return np.sqrt(z_sq)
+
+
+def hyperboloid_eq(x, a, c):
+    return (x[:-1] ** 2) / (a ** 2) - x[-1] ** 2 / c ** 2
 
 
 def value_grad_hess(f, point):
@@ -44,7 +48,7 @@ def value_grad_hess(f, point):
 def test_hyperboloid():
     a = 1
     c = 3
-    f = lambda x: hyperboloid_eq(x[0], x[1], a=a, c=c)
+    f = lambda x: hyperboloid_graph(x[0], x[1], a=a, c=c)
     x = 2.0
     y = 2.0
     point = torch.tensor([x, y]).to(DEVICE)
@@ -62,18 +66,18 @@ def test_hyperboloid():
     )
 
 
-
 @pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
 @pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
 def test_sphere(dimensions, radius):
     f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
-    point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
+    #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
+    point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
     value, pt_grad, pt_hess = value_grad_hess(f, point)
 
     iso_shape_operator, iso_curvatures, iso_directions = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess)
     iso_curvatures = iso_curvatures.detach().cpu().numpy()
 
-    assert iso_curvatures.var() == 0
+    assert iso_curvatures.var() < 1e-16
 
     expected_gaussian_curvature = 1 / (radius ** (dimensions - 1))
     np.testing.assert_allclose(np.abs(np.prod(iso_curvatures)), expected_gaussian_curvature)
@@ -83,16 +87,19 @@ def test_sphere(dimensions, radius):
 @pytest.mark.parametrize('radius', [0.1, 1, 2])
 def test_coordinate_transform_sphere(dimensions, radius):
     f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
-    point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
+    #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
+    point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
+    
     value, pt_grad, pt_hess = value_grad_hess(f, point)
 
     #coordinate_transformation = -torch.eye(len(pt_grad), device=DEVICE)
     coordinate_transformation = torch.tensor(ortho_group.rvs(len(point)), dtype=torch.double).to(DEVICE)
 
+    iso_shape_operator, iso_curvatures, iso_directions = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess)
 
     iso_curvatures = iso_curvatures.detach().cpu().numpy()
 
-    assert iso_curvatures.var() == 0
+    assert iso_curvatures.var() < 1e-16
 
     expected_gaussian_curvature = 1 / (radius ** (dimensions - 1))
     np.testing.assert_allclose(np.abs(np.prod(iso_curvatures)), expected_gaussian_curvature)
@@ -101,17 +108,16 @@ def test_coordinate_transform_sphere(dimensions, radius):
 def test_coordinate_transform():
     f = QuadraticFunction(np.array([1.0, 2.0, 0.1, 0.5])).to(DEVICE)
     point = torch.tensor(np.hstack((np.zeros(3), [1]))).to(DEVICE)
-    #f = QuadraticFunction(np.array([1.0, 2.0])).to(DEVICE)
-    #point = torch.tensor(np.hstack((np.zeros(1), [1]))).to(DEVICE)
+
     value, pt_grad, pt_hess = value_grad_hess(f, point)
 
     iso_shape_operator1, iso_curvatures1, iso_directions1 = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess)
     iso_curvatures1 = iso_curvatures1.detach().cpu().numpy()
 
-    # M = ortho_group.rvs(len(point))
-    M = np.eye(len(point))
-    _M = ortho_group.rvs(len(point) - 1)
-    M[:-1, :-1] = _M
+    M = ortho_group.rvs(len(point))
+    #M = np.eye(len(point))
+    #_M = ortho_group.rvs(len(point) - 1)
+    #M[:-1, :-1] = _M
     coordinate_transformation = torch.tensor(M, dtype=torch.double).to(DEVICE)
     iso_shape_operator2, iso_curvatures2, iso_directions2 = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
     iso_curvatures2 = iso_curvatures2.detach().cpu().numpy()

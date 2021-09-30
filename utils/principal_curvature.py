@@ -6,7 +6,7 @@ Authors: Dylan Paiton, Matthias Kümmerer
 import os, sys
 
 import numpy as np
-from scipy.linalg import orth
+from scipy.linalg import orth, null_space
 import torch
 from tqdm import tqdm
 
@@ -203,23 +203,29 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     pt_grad = pt_grad.type(dtype)
     pt_hess = pt_hess.type(dtype)
     if pt_grad.ndim == 1:
-        pt_grad = pt_grad[:, None] # row vector
+        pt_grad = pt_grad[:, None] # col vector
 
     # transformation _to_ new coordinates
     if coordinate_transformation is None:
-        coordinate_transformation = torch.eye(len(pt_grad), dtype=dtype, device=device)
+        # we choose the coordinates such that the gradient of f is
+        # only in the last dimension, which makes the
+        # implicit function work best
+        pt_grad_numpy = pt_grad.detach().cpu().numpy().T
+        null_space_basis = null_space(pt_grad_numpy)
+        pt_grad_numpy_normed = pt_grad_numpy / np.linalg.norm(pt_grad_numpy.flatten())
+        new_basis = np.hstack((null_space_basis, pt_grad_numpy_normed.T))
+        coordinate_transformation = torch.tensor(new_basis.T, dtype=dtype, device=device)
+        # coordinate_transformation = torch.eye(len(pt_grad), dtype=dtype, device=device)
     else:
         coordinate_transformation = coordinate_transformation.type(dtype)
 
-    print(pt_grad)
-    pt_grad = torch.matmul(coordinate_transformation.T, pt_grad)
-    print(pt_grad)
-    
+    pt_grad = torch.matmul(coordinate_transformation, pt_grad)
+
     pt_hess = torch.matmul(
         coordinate_transformation,
         torch.matmul(pt_hess, coordinate_transformation.T)
     )
-    
+
     # first let's define some variables for convenience
     pt_grad_a = pt_grad[:-1]
     pt_grad_b = pt_grad[-1:]
@@ -227,7 +233,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     pt_hess_aa = pt_hess[:-1, :-1]
     pt_hess_ab = pt_hess[:-1, -1:]
     pt_hess_bb = pt_hess[-1:, -1:]
-    
+
     if pt_grad_b == 0:
         # this should never happen in DNN cases
         raise ValueError('singular gradient, you need a different coordinate system')
@@ -244,7 +250,18 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     ))
 
     embedding_differential = torch.matmul(coordinate_transformation.T, embedding_differential)
-    
+
+    # hess_g = (
+    #     (-1 / pt_grad_b) * (
+    #         pt_hess_aa + 
+    #         pt_hess_ab.T * grad_g.T
+    #     ) +
+    #     (1 / pt_grad_b ** 2) * pt_grad_a * (
+    #         pt_hess_ab.T +
+    #         pt_hess_bb * grad_g.T
+    #     )
+    # )
+
     hess_g = (-1 / pt_grad_b) * (
         pt_hess_ab.T * (grad_g + grad_g.T)
         +
@@ -275,7 +292,7 @@ def local_response_curvature_graph(pt_grad, pt_hess):
     '''
     dtype = pt_grad.dtype
     shape_operator = get_shape_operator_graph(pt_grad, pt_hess)
-    
+
     # FIXME: workaround for missing torch.linalg.eig
     principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
     principal_curvatures = np.real(principal_curvatures).astype(np.double)
