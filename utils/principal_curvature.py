@@ -246,7 +246,7 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     embedding_differential = torch.matmul(coordinate_transformation.T, embedding_differential)
     
     hess_g = (-1 / pt_grad_b) * (
-        torch.diag(pt_hess_ab.reshape(-1)) * (grad_g + grad_g.T)
+        pt_hess_ab.T * (grad_g + grad_g.T)
         +
         pt_hess_bb * grad_g * grad_g.T
         +
