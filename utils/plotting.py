@@ -340,11 +340,13 @@ def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, arrowprops=None, v
     inset_width = 0.35 * width_ratio
     arr_img = np.squeeze(images[image_y_pos, image_x_pos, ...])
     imagebox = OffsetImage(arr_img, zoom=0.75, cmap='Gray')
-    img = imagebox.get_children()[0]; img.set_clim(vmin=vmin, vmax=vmax)
+    img = imagebox.get_children()[0]
+    img.set_clim(vmin=vmin, vmax=vmax)
     imagebox.image.axes = ax
     if arrowprops is None:
         arrowprops = dict(
             linestyle='--',
+            lw=1,
             arrowstyle='->',
             color='r'
         )
