@@ -294,14 +294,15 @@ def local_response_curvature_graph(pt_grad, pt_hess):
     shape_operator = get_shape_operator_graph(pt_grad, pt_hess)
 
     # FIXME: workaround for missing torch.linalg.eig
-    principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
-    principal_curvatures = np.real(principal_curvatures).astype(np.double)
-    principal_directions = np.real(principal_directions).astype(np.double)
-    principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype)
-    principal_directions = torch.tensor(principal_directions, dtype=dtype)
-    #principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
-    #principal_curvatures = torch.real(principal_curvatures).type(dtype)
-    #principal_directions = torch.real(principal_directions).type(dtype)
+    #principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
+    #principal_curvatures = np.real(principal_curvatures).astype(np.double)
+    #principal_directions = np.real(principal_directions).astype(np.double)
+    #principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype)
+    #principal_directions = torch.tensor(principal_directions, dtype=dtype)
+
+    principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
+    principal_curvatures = torch.real(principal_curvatures).type(dtype)
+    principal_directions = torch.real(principal_directions).type(dtype)
     
     sort_indices = torch.argsort(principal_curvatures, descending=True)
     return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
@@ -327,30 +328,34 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     device = pt_grad.device
     shape_operator, embedding_differential, metric_tensor = get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
     if projection_subspace_of_interest is not None:
-        projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(torch.double)
+        projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(dtype)
         # even if the projection was orthogonal originally, after we deleted the last column it might not be anymore
         # therefore we have to reorthogonalize
         projection_from_isosurface = orth(projection_from_isosurface.detach().cpu().numpy().T).T
-        projection_from_isosurface = torch.tensor(projection_from_isosurface, dtype=torch.double, device=device)
+        projection_from_isosurface = torch.tensor(projection_from_isosurface, dtype=dtype, device=device)
         # restrict shape operator to subspace of interest. This is the correct endomorphism for the restriced second fundamental form,
         # since the first projection cancels with the transposed projection that is part of the restricted metric.
         shape_operator = torch.matmul(torch.matmul(projection_from_isosurface, shape_operator), projection_from_isosurface.T)
 
     # FIXME: workaround for missing torch.linalg.eig
-    #principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
-    #principal_curvatures = torch.real(principal_curvatures).type(dtype)
-    #principal_directions = torch.real(principal_directions).type(dtype)
-    
-    principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
-    principal_curvatures = np.real(principal_curvatures).astype(np.double)
-    principal_directions = np.real(principal_directions).astype(np.double)
-    principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype).to(device)
-    principal_directions = torch.tensor(principal_directions, dtype=dtype).to(device)
+    #principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
+    #principal_curvatures = np.real(principal_curvatures).astype(np.double)
+    #principal_directions = np.real(principal_directions).astype(np.double)
+    #principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype).to(device)
+    #principal_directions = torch.tensor(principal_directions, dtype=dtype).to(device)
+
+    principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
+    principal_curvatures = torch.real(principal_curvatures).type(dtype)
+    principal_directions = torch.real(principal_directions).type(dtype)
     
     sort_indices = torch.argsort(principal_curvatures, descending=True)
 
     # we need to norm the directions wrt to the metric, not the canonical scalar product
-    _metric_tensor = metric_tensor.type(dtype)
+    if projection_subspace_of_interest is not None:
+        _metric_tensor = torch.matmul(torch.matmul(projection_from_isosurface, metric_tensor), projection_from_isosurface.T)
+    else:
+        _metric_tensor = metric_tensor.type(dtype)
+    
     direction_norms = torch.tensor([
         torch.dot(direction, torch.matmul(_metric_tensor, direction)) for direction in principal_directions.T
     ], dtype=dtype, device=device)
