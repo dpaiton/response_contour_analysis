@@ -8,6 +8,7 @@ import os, sys
 import numpy as np
 from scipy.linalg import orth, null_space
 import torch
+import torch.nn as nn
 from tqdm import tqdm
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..'))
@@ -16,6 +17,100 @@ if ROOT_DIR not in sys.path: sys.path.append(ROOT_DIR)
 import response_contour_analysis.utils.dataset_generation as data_utils
 import response_contour_analysis.utils.histogram_analysis as hist_funcs
 import response_contour_analysis.utils.model_handling as model_utils
+
+
+def hyperboloid_graph(x_vals, y_vals, a, c):
+    z_sq = c**2 * (x_vals**2 / a**2 + y_vals**2 / a**2 - 1)
+    if type(x_vals) == type(torch.Tensor()):
+        return torch.sqrt_(z_sq)
+    else:
+        return np.sqrt(z_sq)
+
+
+def hyperboloid_mesh(a, c, step_size, num_points):
+    pt_range = (num_points - 1) * step_size
+    start_pt = 0 - pt_range / 2
+    end_pt = 0 + pt_range / 2
+    x_pts = np.linspace(start_pt, end_pt, num_points)
+    y_pts = np.linspace(start_pt, end_pt, num_points)
+    x_mesh, y_mesh = np.meshgrid(x_pts, y_pts)
+    return x_mesh, y_mesh
+
+
+def hyperboloid(a, c, step_size, num_points):
+    """generate single sheet hyperboloid"""
+    x_mesh, y_mesh = hyperboloid_mesh(a, c, step_size, num_points)
+    z_vals = hyperboloid_graph(x_mesh, y_mesh, a, c)
+    return x_mesh, y_mesh, z_vals
+
+
+class pytorch_hyperboloid(nn.Module):
+    def __init__(self, a, c):
+        super(pytorch_hyperboloid, self).__init__()
+        self.a = a
+        self.c = c
+    
+    def forward(self, data):
+        z_vals = hyperboloid_graph(x_vals=data[:, 0], y_vals=data[:, 1], a=self.a, c=self.c)
+        return z_vals.reshape((data.shape[0], 1)) #1 neuron
+
+
+def numeric_pt_grad_hess(model, x_pt, y_pt, dtype, device, sr1_kwargs):
+    act_func = lambda image: model_utils.unit_activation_and_gradient(model, image, target_neuron=0)
+    x_tensor = torch.tensor([x_pt, y_pt], dtype=dtype).to(device)[None, :]
+    x = torch.autograd.Variable(x_tensor, requires_grad=True)
+    z, pt_grad = act_func(x)
+    pt_hess = sr1_hessian(act_func, x, **sr1_kwargs)
+    return pt_grad, pt_hess
+
+
+def numeric_grad_hess(model, x_vals, y_vals, dtype, device, sr1_kwargs):
+    grad = torch.zeros(x_vals.shape + (2,), dtype=dtype).to(device)
+    hess = torch.zeros(x_vals.shape + (4,), dtype=dtype).to(device)
+    for x_idx in tqdm(range(len(x_vals[0, :])), leave=True):
+        for y_idx in range(len(y_vals[0, :])):
+            pt_grad, pt_hess = numeric_pt_grad_hess(
+                model, x_vals[x_idx, y_idx], y_vals[x_idx, y_idx], dtype, device, sr1_kwargs)
+            grad[x_idx, y_idx, :] = pt_grad
+            hess[x_idx, y_idx, :] = pt_hess.flatten()
+    return grad, hess
+
+
+def autodiff_pt_grad_hess(x_pt, y_pt, a, c, dtype, device='cpu'):
+    x_tensor = torch.tensor([x_pt, y_pt]).to(dtype).to(device)
+    x = torch.autograd.Variable(x_tensor, requires_grad=True).to(device)
+    z = hyperboloid_graph(x_vals=x[0], y_vals=x[1], a=a, c=c)
+    x_1grad, = torch.autograd.grad(z, x, create_graph=True, retain_graph=True)
+    x_2grad0, = torch.autograd.grad(x_1grad[0], x, create_graph=True)
+    x_2grad1, = torch.autograd.grad(x_1grad[1], x, create_graph=True)
+    x_2grad = torch.cat((x_2grad0, x_2grad1), dim=0)
+    return x_1grad, x_2grad
+
+
+def autodiff_grad_hess(x_vals, y_vals, a, c, dtype, device):
+    grad = torch.zeros(x_vals.shape + (2,)).to(device)
+    hess = torch.zeros(x_vals.shape + (4,)).to(device)
+    for x_idx in tqdm(range(len(x_vals[0, :])), leave=True):
+        for y_idx in range(len(y_vals[0, :])):
+            x_1grad, x_2grad = autodiff_pt_grad_hess(x_vals[x_idx, y_idx], y_vals[x_idx, y_idx], a, c, dtype, device)
+            grad[x_idx, y_idx, :] = x_1grad
+            hess[x_idx, y_idx, :] = x_2grad
+    return grad, hess
+
+
+def hyperboloid_gauss_mean_curvature(grad, hess):
+    gauss_curvature = np.zeros([len(grad), len(grad)])
+    mean_curvature = np.zeros([len(grad), len(grad)])
+    np_grad = grad.detach().cpu().numpy()
+    for x_idx in range(len(grad)):
+        for y_idx in range(len(grad)):
+            if np.all(np.isfinite(np_grad[x_idx, y_idx, :])):
+                pt_grad = grad[x_idx, y_idx, :]
+                pt_hess = hess[x_idx, y_idx, :].reshape((2,2))
+                shape_operator, principal_curvatures, principal_directions = local_response_curvature_graph(pt_grad, pt_hess)
+                gauss_curvature[x_idx, y_idx] = np.prod(principal_curvatures.detach().cpu().numpy())
+                mean_curvature[x_idx, y_idx] = np.mean(principal_curvatures.detach().cpu().numpy())
+    return gauss_curvature, mean_curvature
 
 
 def vector_f(f, x, orig_shape):
@@ -164,7 +259,6 @@ def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_pa
     )
     torch_stim_images = torch.from_numpy(stim_images).to(experiment_params['device'])
     num_images_per_edge = int(np.sqrt(experiment_params['num_images']))
-    #stim_images = stim_images.reshape(num_images_per_edge, num_images_per_edge, *stim_images.shape[1:])
     act_func = lambda x: model_utils.unit_activation_and_gradient(model, x, experiment_params['target_model_id'])
     activation, gradient = act_func(image)
     activation = activation.item()
@@ -191,7 +285,7 @@ def get_shape_operator_graph(pt_grad, pt_hess):
     return shape_operator
 
 
-def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=None):
+def get_shape_operator_level_set(pt_grad, pt_hess, coordinate_transformation=None):
     """
     compute grad of implicit function g: a=(x_0, ... x_{n-2}) \to b=x_{n-1} (zero-indexed)
     this will gives us a coordinate system of the iso response surface in the coordinates
@@ -310,7 +404,7 @@ def get_shape_operator_golden(pt_grad, pt_hess):
          torch.tensor([-1]).to(device)), dim=0)
     unit_normal = normal / torch.linalg.norm(normal)
     # Scale Hessian by the last element of the unit normal vector
-    second_funamental = torch.reshape(pt_hess.flatten() * unit_normal[-1], first_fundamental.shape)
+    second_fundamental = torch.reshape(pt_hess.flatten() * unit_normal[-1], first_fundamental.shape)
     # Compute shape operator matrix = FF\SF
     shape_operator = torch.linalg.solve(first_fundamental, second_fundamental)
     return shape_operator
@@ -350,7 +444,7 @@ def local_response_curvature_graph(pt_grad, pt_hess):
     return shape_operator, principal_curvatures, principal_directions
 
 
-def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_subspace_of_interest=None, coordinate_transformation=None):
+def local_response_curvature_level_set(pt_grad, pt_hess, projection_subspace_of_interest=None, coordinate_transformation=None):
     """
     Parameters:
         pt_grad: defining function gradient
@@ -368,7 +462,7 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
     """
     dtype = pt_grad.dtype
     device = pt_grad.device
-    shape_operator, embedding_differential, metric_tensor = get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
+    shape_operator, embedding_differential, metric_tensor = get_shape_operator_level_set(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
     if projection_subspace_of_interest is not None:
         projection_from_isosurface = projection_subspace_of_interest[:, :-1].type(dtype)
         # even if the projection was orthogonal originally, after we deleted the last column it might not be anymore
@@ -405,11 +499,18 @@ def local_response_curvature_alternates(pt_grad, pt_hess, so_type='moosavi'):
     
     and if so_type == 'golden', then the shape operator is computed from:
         JR Golden, KP Vilankar, DJ Field (2019) - Selective and Invariant Features of Neural Response Surfaces Measured with Principal Curvature
+    
+    and if so_type == 'lee_level' or 'lee_graph', then operator is computed from:
+        DM Paiton, D Schultheiss, M Kümmerer, Z Cranko, M Bethge (2021) - The Geometry of Adversarial Subspaces
     """
     if so_type.lower() == 'moosavi':
         shape_operator = get_shape_operator_moosavi(pt_grad, pt_hess)
     elif so_type.lower() == 'golden':
         shape_operator = get_shape_operator_golden(pt_grad, pt_hess)
+    elif so_type.lower() == 'lee_level':
+        shape_operator = get_shape_operator_level_set(pt_grad, pt_hess)[0]
+    elif so_type.lower() == 'lee_graph':
+        shape_operator = get_shape_operator_graph(pt_grad, pt_hess)
     else:
         assert False
     principal_curvatures, principal_directions = get_principal_curvatures(shape_operator)
