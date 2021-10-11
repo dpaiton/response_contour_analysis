@@ -100,9 +100,9 @@ def sr1_hessian(f, point, distance, n_points, **kwargs):
 
 
 def taylor_approximation(start_point, new_point, activation, gradient, hessian):
-    '''
+    """
     computes 2nd order taylor approximation of a forward function
-        i.e. $$ y = f(\mathbf{x} + \Delta \mathbf{x}) \approx f(\mathbf{x}) + \nabla f(\mathbf{x}) \Delta \mathbf{x} + \frac{1}{2} \Delta \mathbf{x}^{T}\mathbf{H}(\mathbf{x}) \Delta \mathbf{x} $$
+        i.e. $$y = f(\mathbf{x} + \Delta \mathbf{x}) \approx f(\mathbf{x}) + \nabla f(\mathbf{x}) \Delta \mathbf{x} + \frac{1}{2} \Delta \mathbf{x}^{T}\mathbf{H}(\mathbf{x}) \Delta \mathbf{x}$$
     Parameters:
         start_point [torch array] original point where activation, gradient, and hessian were computed
         new_point [torch array] new point where 2nd order approximation will be applied
@@ -111,7 +111,7 @@ def taylor_approximation(start_point, new_point, activation, gradient, hessian):
         hessian [torch array] matrix  (shape is [input_size, input_size]) second order gradient of function at start_point
     Outputs:
         approx_output [torch array] second order taylor approximation of the model output
-    '''
+    """
     delta_input = (new_point.flatten() - start_point.flatten())[:, None] # column  vector
     f0 = activation
     f1 = torch.matmul(gradient.T, delta_input).item()
@@ -138,9 +138,9 @@ def hessian_approximate_response(f, points, hessian):
 
 
 def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_params, verbose=False):
-    '''
+    """
     TODO: allow user to specify a smaller window of images to compute error on
-    '''
+    """
     plane_absissa = [data_utils.l2_normalize(abscissa)] # horizontal axes for the planes
     plane_ordinate = [data_utils.l2_normalize(ordinate)] # vertical axes for the planes
     experiment_params['normalize_activity_map'] = False
@@ -180,8 +180,7 @@ def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_pa
 
 def get_shape_operator_graph(pt_grad, pt_hess):
     device = pt_grad.device
-    dtype = torch.double
-    pt_grad = pt_grad.type(dtype)
+    dtype = pt_grad.dtype
     pt_hess = pt_hess.type(dtype)
     if pt_grad.ndim == 1:
         pt_grad = pt_grad[:, None] # row vector
@@ -199,12 +198,10 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     x_0, ... x_{n-2}
     """
     device = pt_grad.device
-    dtype = torch.double
-    pt_grad = pt_grad.type(dtype)
+    dtype = pt_grad.dtype
     pt_hess = pt_hess.type(dtype)
     if pt_grad.ndim == 1:
         pt_grad = pt_grad[:, None] # col vector
-
     # transformation _to_ new coordinates
     if coordinate_transformation is None:
         # we choose the coordinates such that the gradient of f is
@@ -215,42 +212,34 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
         pt_grad_numpy_normed = pt_grad_numpy / np.linalg.norm(pt_grad_numpy.flatten())
         new_basis = np.hstack((null_space_basis, pt_grad_numpy_normed.T))
         coordinate_transformation = torch.tensor(new_basis.T, dtype=dtype, device=device)
-        # coordinate_transformation = torch.eye(len(pt_grad), dtype=dtype, device=device)
     else:
         coordinate_transformation = coordinate_transformation.type(dtype)
-
     pt_grad = torch.matmul(coordinate_transformation, pt_grad)
-
     pt_hess = torch.matmul(
         coordinate_transformation,
         torch.matmul(pt_hess, coordinate_transformation.T)
     )
-
-    # first let's define some variables for convenience
+    # convenience variables
     pt_grad_a = pt_grad[:-1]
     pt_grad_b = pt_grad[-1:]
-
     pt_hess_aa = pt_hess[:-1, :-1]
     pt_hess_ab = pt_hess[:-1, -1:]
     pt_hess_bb = pt_hess[-1:, -1:]
-
+    # consistency tests
     if pt_grad_b == 0:
         # this should never happen in DNN cases
         raise ValueError('singular gradient, you need a different coordinate system')
     if torch.abs(pt_grad_b[0, 0]) < 1e-7:
         # this should never happen in DNN cases
         print('close to singular gradient, you might need a different coordinate system', pt_grad_b)
-
     # g is the implicit function from x_1, x_{n-1} to x_n
     grad_g = -pt_grad_a / pt_grad_b
-
     embedding_differential = torch.vstack((
         torch.eye(len(grad_g)).to(device),
         grad_g.T
     ))
-
     embedding_differential = torch.matmul(coordinate_transformation.T, embedding_differential)
-
+    # alternative formulation:
     # hess_g = (
     #     (-1 / pt_grad_b) * (
     #         pt_hess_aa + 
@@ -261,7 +250,6 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
     #         pt_hess_bb * grad_g.T
     #     )
     # )
-
     hess_g = (-1 / pt_grad_b) * (
         pt_hess_ab.T * (grad_g + grad_g.T)
         +
@@ -269,61 +257,115 @@ def get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transfor
         +
         pt_hess_aa
     )
-
-    if pt_grad_b > 0:
-        # make sure the normal points in the right direction
+    if pt_grad_b > 0: # make sure the normal points in the right direction
         grad_g = -grad_g
         hess_g = -hess_g
-
     normalization_factor = torch.sqrt(torch.linalg.norm(grad_g)**2 + 1)
     identity_matrix = torch.eye(len(grad_g), dtype=dtype).to(device)
     metric_tensor = identity_matrix + torch.matmul(grad_g, grad_g.T)
     shape_operator = - torch.linalg.solve(metric_tensor, hess_g) / normalization_factor
-
     return shape_operator, embedding_differential, metric_tensor
 
 
-def local_response_curvature_graph(pt_grad, pt_hess):
-    '''
-    shape_operator - [M, M] dimensional array
-    principal_curvatures - [M] dimensional array of curvatures in ascending order
-    principal_directions - [M,M] dimensional array,
-        where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
-    '''
+def get_shape_operator_moosavi(pt_grad, pt_hess):
+    """
+    Adapted from descriptions given in:
+    SM Moosavi-Dezfooli, A Fawzi, O Fawzi, P Frossard, S Soatto (2018) - Robustness of Classifiers to Universal Perturbations: A Geometric Perspective
+    and
+    SM Moosavi-Dezfooli (2019) - Geometry of Adversarial Robustness of Deep Networks: Methods and Applications
+    """
+    device = pt_grad.device
     dtype = pt_grad.dtype
-    shape_operator = get_shape_operator_graph(pt_grad, pt_hess)
+    identity_matrix = torch.eye(len(pt_grad), dtype=dtype).to(device)
+    projection_operator = identity_matrix - torch.matmul(pt_grad, pt_grad.T)
+    norm_constant = 1 / torch.linalg.norm(pt_grad)
+    shape_operator = norm_constant * torch.matmul(
+        projection_operator,
+        torch.matmul(pt_hess, projection_operator.T)
+    )
+    return shape_operator
 
-    # FIXME: workaround for missing torch.linalg.eig
-    #principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
-    #principal_curvatures = np.real(principal_curvatures).astype(np.double)
-    #principal_directions = np.real(principal_directions).astype(np.double)
-    #principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype)
-    #principal_directions = torch.tensor(principal_directions, dtype=dtype)
 
+def get_shape_operator_golden(pt_grad, pt_hess):
+    """
+    Returns the shape operator, principal directions, principal curvature
+    code adapted to pytorch from
+        https://github.com/jamesgolden1/bias_free_denoising/blob/manifold_metric/curvature/hyperboloid_single_sheet_curvature_compare.ipynb
+    Parameters:
+        pt_grad [pytorch tensor] gradient vector for the input point
+        pt_hess [pytorch tensor] hessian matrix for the input point
+    """
+    device = pt_grad.device
+    dtype = pt_grad.dtype
+    # Append gradient vector as extra col to identity matrix
+    identity_matrix = torch.eye(len(pt_grad), dtype=dtype).to(device)
+    embedding_differential = torch.zeros([len(pt_grad), len(pt_grad)+1], dtype=dtype).to(device)
+    embedding_differential[:len(pt_grad), :len(pt_grad)] = identity_matrix.clone().detach()
+    embedding_differential[:, len(pt_grad)] = pt_grad
+    # Take inner product of this matrix with its transpose
+    first_fundamental = torch.matmul(embedding_differential, embedding_differential.T)
+    # Compute the normal vector to the manifold at the point of interest
+    normal = torch.cat(
+        (torch.matmul(identity_matrix.clone().detach(), pt_grad),
+         torch.tensor([-1]).to(device)), dim=0)
+    unit_normal = normal / torch.linalg.norm(normal)
+    # Scale Hessian by the last element of the unit normal vector
+    second_funamental = torch.reshape(pt_hess.flatten() * unit_normal[-1], first_fundamental.shape)
+    # Compute shape operator matrix = FF\SF
+    shape_operator = torch.linalg.solve(first_fundamental, second_fundamental)
+    return shape_operator
+
+
+def get_principal_curvatures(shape_operator):
+    """
+    Performs an eigen decomposition of the shape operator
+    Parameters:
+        shape_operator - [M, M] dimensional array
+    Returns:
+        principal_curvatures - sorted eigenvalues of shape_operator
+        principal_directions - sorted eigenvectors of shape_operator
+            where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
+    """
+    dtype = shape_operator.dtype
     principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
     principal_curvatures = torch.real(principal_curvatures).type(dtype)
     principal_directions = torch.real(principal_directions).type(dtype)
-    
     sort_indices = torch.argsort(principal_curvatures, descending=True)
-    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
+    return principal_curvatures[sort_indices], principal_directions[:, sort_indices]
+
+
+def local_response_curvature_graph(pt_grad, pt_hess):
+    """
+    Parameters:
+        pt_grad: defining function gradient
+        pt_hess: defining function hessian
+    Outputs:
+        shape_operator - [M, M] dimensional array
+        principal_curvatures - [M] dimensional array of curvatures in ascending order
+        principal_directions - [M,M] dimensional array,
+            where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
+    """
+    shape_operator = get_shape_operator_graph(pt_grad, pt_hess)
+    principal_curvatures, principal_directions = get_principal_curvatures(shape_operator)
+    return shape_operator, principal_curvatures, principal_directions
 
 
 def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_subspace_of_interest=None, coordinate_transformation=None):
-    '''
-    Arguments:
-      pt_grad: defining function gradient
-      pt_hess: defining function hessian
-      projection_subspace_of_interest: [k, M] matrix. projection from ambient space to a subspace for which we are interested
-        in the curvature. Curvature will be computed for the projection of the subspace of interest
-        into the isoresponse surface.
-      coordinate_transformation: orthogonal [M, M] matrix from input space into a new coordinate system. The last coordinate will
-        be used to parametrize the decision boundary
-
-    shape_operator - [M-1, M-1] dimensional array
-    principal_curvatures - [M-1] dimensional array of curvatures in ascending order
-    principal_directions - [M,M-1] dimensional array,
-        where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
-    '''
+    """
+    Parameters:
+        pt_grad: defining function gradient
+        pt_hess: defining function hessian
+        projection_subspace_of_interest: [k, M] matrix. projection from ambient space to a subspace for which we are interested
+          in the curvature. Curvature will be computed for the projection of the subspace of interest
+          into the isoresponse surface.
+        coordinate_transformation: orthogonal [M, M] matrix from input space into a new coordinate system. The last coordinate will
+          be used to parametrize the decision boundary
+    Outputs:
+        shape_operator - [M-1, M-1] dimensional array
+        principal_curvatures - [M-1] dimensional array of curvatures in ascending order
+        principal_directions - [M,M-1] dimensional array,
+            where principal_directions[:, i] is the vector corresponding to principal_curvatures[i]
+    """
     dtype = pt_grad.dtype
     device = pt_grad.device
     shape_operator, embedding_differential, metric_tensor = get_shape_operator_isoresponse_surface(pt_grad, pt_hess, coordinate_transformation=coordinate_transformation)
@@ -336,34 +378,39 @@ def local_response_curvature_isoresponse_surface(pt_grad, pt_hess, projection_su
         # restrict shape operator to subspace of interest. This is the correct endomorphism for the restriced second fundamental form,
         # since the first projection cancels with the transposed projection that is part of the restricted metric.
         shape_operator = torch.matmul(torch.matmul(projection_from_isosurface, shape_operator), projection_from_isosurface.T)
-
-    # FIXME: workaround for missing torch.linalg.eig
-    #principal_curvatures, principal_directions = np.linalg.eig(shape_operator.detach().cpu().numpy())
-    #principal_curvatures = np.real(principal_curvatures).astype(np.double)
-    #principal_directions = np.real(principal_directions).astype(np.double)
-    #principal_curvatures = torch.tensor(principal_curvatures, dtype=dtype).to(device)
-    #principal_directions = torch.tensor(principal_directions, dtype=dtype).to(device)
-
-    principal_curvatures, principal_directions = torch.linalg.eig(shape_operator)
-    principal_curvatures = torch.real(principal_curvatures).type(dtype)
-    principal_directions = torch.real(principal_directions).type(dtype)
-    
-    sort_indices = torch.argsort(principal_curvatures, descending=True)
-
+    principal_curvatures, principal_directions = get_principal_curvatures(shape_operator)
+    ## TODO: Verify with MK that it is ok to do this projection post-sorting
     # we need to norm the directions wrt to the metric, not the canonical scalar product
     if projection_subspace_of_interest is not None:
         _metric_tensor = torch.matmul(torch.matmul(projection_from_isosurface, metric_tensor), projection_from_isosurface.T)
     else:
         _metric_tensor = metric_tensor.type(dtype)
-    
     direction_norms = torch.tensor([
         torch.dot(direction, torch.matmul(_metric_tensor, direction)) for direction in principal_directions.T
     ], dtype=dtype, device=device)
     principal_directions /= torch.sqrt(direction_norms)[None, :]
-
     if projection_subspace_of_interest is not None:
         principal_directions = torch.matmul(projection_from_isosurface.T.type(dtype), principal_directions)
-
     principal_directions = torch.matmul(embedding_differential.type(principal_directions.dtype), principal_directions)
+    return shape_operator, principal_curvatures, principal_directions
+
+
+def local_response_curvature_alternates(pt_grad, pt_hess, so_type='moosavi'):
+    """
+    Alternative published methods for computing local response curvature.
+    if so_type == 'moosavi', then shape operator is computed using descriptions from:
+        SM Moosavi-Dezfooli, A Fawzi, O Fawzi, P Frossard, S Soatto (2018) - Robustness of Classifiers to Universal Perturbations: A Geometric Perspective
+        and
+        SM Moosavi-Dezfooli (2019) - Geometry of Adversarial Robustness of Deep Networks: Methods and Applications
     
-    return shape_operator, principal_curvatures[sort_indices], principal_directions[:, sort_indices]
+    and if so_type == 'golden', then the shape operator is computed from:
+        JR Golden, KP Vilankar, DJ Field (2019) - Selective and Invariant Features of Neural Response Surfaces Measured with Principal Curvature
+    """
+    if so_type.lower() == 'moosavi':
+        shape_operator = get_shape_operator_moosavi(pt_grad, pt_hess)
+    elif so_type.lower() == 'golden':
+        shape_operator = get_shape_operator_golden(pt_grad, pt_hess)
+    else:
+        assert False
+    principal_curvatures, principal_directions = get_principal_curvatures(shape_operator)
+    return shape_operator, principal_curvatures, principal_directions

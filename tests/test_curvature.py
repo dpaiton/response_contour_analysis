@@ -1,8 +1,14 @@
+import os
+import sys
+
 import numpy as np
 from scipy.stats import ortho_group
 import torch
 
-import utils.principal_curvature as curve_utils
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..'))
+if ROOT_DIR not in sys.path: sys.path.append(ROOT_DIR)
+
+import response_contour_analysis.utils.principal_curvature as curve_utils
 
 import pytest
 
@@ -38,11 +44,11 @@ def hyperboloid_eq(x, a, c):
     return (x[:-1] ** 2) / (a ** 2) - x[-1] ** 2 / c ** 2
 
 
-def value_grad_hess(f, point):
+def value_grad_hess(f, point, dtype):
     value = f(point)
     grad = torch.autograd.functional.jacobian(f, point)
     hess = torch.autograd.functional.hessian(f, point)
-    return value, grad, hess
+    return value.type(dtype), grad.type(dtype), hess.type(dtype)
 
 
 def test_hyperboloid():
@@ -52,7 +58,7 @@ def test_hyperboloid():
     x = 2.0
     y = 2.0
     point = torch.tensor([x, y]).to(DEVICE)
-    z, grad, hess = value_grad_hess(f, point)
+    z, grad, hess = value_grad_hess(f, point, dtype=torch.double)
 
     shape_operator, principal_curvatures, principal_directions = curve_utils.local_response_curvature_graph(grad, hess)
 
@@ -72,7 +78,7 @@ def test_sphere(dimensions, radius):
     f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
     #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
     point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
-    value, pt_grad, pt_hess = value_grad_hess(f, point)
+    value, pt_grad, pt_hess = value_grad_hess(f, point, dtype=torch.double)
 
     iso_shape_operator, iso_curvatures, iso_directions = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess)
     iso_curvatures = iso_curvatures.detach().cpu().numpy()
@@ -90,7 +96,7 @@ def test_coordinate_transform_sphere(dimensions, radius):
     #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
     point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
     
-    value, pt_grad, pt_hess = value_grad_hess(f, point)
+    value, pt_grad, pt_hess = value_grad_hess(f, point, dtype=torch.double)
 
     #coordinate_transformation = -torch.eye(len(pt_grad), device=DEVICE)
     coordinate_transformation = torch.tensor(ortho_group.rvs(len(point)), dtype=torch.double).to(DEVICE)
@@ -110,7 +116,7 @@ def test_coordinate_transform():
     f = QuadraticFunction(np.array([1.0, 2.0, 0.1, 0.5])).to(DEVICE)
     point = torch.tensor(np.hstack((np.zeros(3), [1]))).to(DEVICE)
 
-    value, pt_grad, pt_hess = value_grad_hess(f, point)
+    value, pt_grad, pt_hess = value_grad_hess(f, point, dtype=torch.double)
 
     iso_shape_operator1, iso_curvatures1, iso_directions1 = curve_utils.local_response_curvature_isoresponse_surface(pt_grad, pt_hess)
     iso_curvatures1 = iso_curvatures1.detach().cpu().numpy()
@@ -136,7 +142,7 @@ def test_bad_condition(dimensions, radius):
     ).to(DEVICE) * radius
 
     # first in original coordinates
-    value_orig, pt_grad_orig, pt_hess_orig = value_grad_hess(f_3d, point)
+    value_orig, pt_grad_orig, pt_hess_orig = value_grad_hess(f_3d, point, dtype=torch.double)
     with pytest.raises(ValueError):
         iso_shape_operator_orig, iso_curvatures_orig, iso_directions_orig = \
             curve_utils.local_response_curvature_isoresponse_surface(
@@ -157,7 +163,7 @@ def test_bad_condition(dimensions, radius):
         point
     ).detach().clone()
 
-    value_new, pt_grad_new, pt_hess_new = value_grad_hess(new_f, new_point)
+    value_new, pt_grad_new, pt_hess_new = value_grad_hess(new_f, new_point, dtype=torch.double)
 
     np.testing.assert_allclose(
         value_orig.cpu().numpy(),
