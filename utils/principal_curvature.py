@@ -15,7 +15,7 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),'..','..'))
 if ROOT_DIR not in sys.path: sys.path.append(ROOT_DIR)
 
 import response_contour_analysis.utils.dataset_generation as data_utils
-import response_contour_analysis.utils.histogram_analysis as hist_funcs
+import response_contour_analysis.utils.histogram_analysis as hist_utils
 import response_contour_analysis.utils.model_handling as model_utils
 
 
@@ -239,7 +239,7 @@ def plane_hessian_error(model, hessian, image, abscissa, ordinate, experiment_pa
     plane_absissa = [data_utils.l2_normalize(abscissa)] # horizontal axes for the planes
     plane_ordinate = [data_utils.l2_normalize(ordinate)] # vertical axes for the planes
     experiment_params['normalize_activity_map'] = False
-    contour_dataset, response_images, iso_curvatures, iso_fits, iso_contours = hist_funcs.polynomial_iso_response_curvature(
+    contour_dataset, response_images, iso_curvatures, iso_fits, iso_contours = hist_utils.polynomial_iso_response_curvature(
         model, plane_absissa, plane_ordinate, experiment_params)
     neuron_id = target_plane_id = comp_plane_id = 0
     yx_pts = (contour_dataset['y_pts'].copy(), contour_dataset['x_pts'].copy())
