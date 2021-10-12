@@ -66,22 +66,48 @@ def test_hyperboloid(curve_func):
     )
 
 
-@pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
-@pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
 #@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
 @pytest.mark.parametrize('curve_func', ['lee_level'])
-def test_sphere(dimensions, radius, curve_func):
+@pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
+@pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
+def test_sphere_pc_variance(dimensions, radius, curve_func):
     f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
     #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
     point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
     value, pt_grad, pt_hess = value_grad_hess(f, point, dtype=torch.double)
-
     iso_shape_operator, iso_curvatures, iso_directions = curve_utils.local_response_curvature_alternates(pt_grad, pt_hess, curve_func)
     iso_curvatures = iso_curvatures.detach().cpu().numpy()
-
     assert iso_curvatures.var() < 1e-16
 
-    expected_gaussian_curvature = 1 / (radius ** (dimensions - 1))
+
+#@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
+@pytest.mark.parametrize('curve_func', ['lee_level'])
+@pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
+@pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
+def test_sphere_pcs(dimensions, radius, curve_func):
+    f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
+    #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
+    point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
+    value, pt_grad, pt_hess = value_grad_hess(f, point, dtype=torch.double)
+    iso_shape_operator, iso_curvatures, iso_directions = curve_utils.local_response_curvature_alternates(pt_grad, pt_hess, curve_func)
+    iso_curvatures = iso_curvatures.detach().cpu().numpy()
+    expected_principal_curvature = 1 / radius
+    np.testing.assert_allclose(np.abs(iso_curvatures), [expected_principal_curvature,]*(dimensions-1))
+
+
+#@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
+@pytest.mark.parametrize('curve_func', ['lee_level'])
+@pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
+@pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
+def test_sphere_gauss(dimensions, radius, curve_func):
+    f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
+    #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
+    point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
+    value, pt_grad, pt_hess = value_grad_hess(f, point, dtype=torch.double)
+    iso_shape_operator, iso_curvatures, iso_directions = curve_utils.local_response_curvature_alternates(pt_grad, pt_hess, curve_func)
+    iso_curvatures = iso_curvatures.detach().cpu().numpy()
+    expected_principal_curvature = 1 / radius
+    expected_gaussian_curvature = np.prod([expected_principal_curvature,]*(dimensions-1))
     np.testing.assert_allclose(np.abs(np.prod(iso_curvatures)), expected_gaussian_curvature)
 
 
