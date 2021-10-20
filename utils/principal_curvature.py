@@ -294,8 +294,8 @@ def get_shape_operator_level_set(pt_grad, pt_hess, coordinate_transformation=Non
     device = pt_grad.device
     dtype = pt_grad.dtype
     pt_hess = pt_hess.type(dtype)
-    if pt_grad.ndim == 1:
-        pt_grad = pt_grad[:, None] # col vector
+    if pt_grad.ndim != 2:
+        pt_grad = pt_grad.reshape(-1)[:, None] # col vector
     # transformation _to_ new coordinates
     if coordinate_transformation is None:
         # we choose the coordinates such that the gradient of f is
@@ -333,17 +333,6 @@ def get_shape_operator_level_set(pt_grad, pt_hess, coordinate_transformation=Non
         grad_g.T
     ))
     embedding_differential = torch.matmul(coordinate_transformation.T, embedding_differential)
-    # alternative formulation:
-    # hess_g = (
-    #     (-1 / pt_grad_b) * (
-    #         pt_hess_aa + 
-    #         pt_hess_ab.T * grad_g.T
-    #     ) +
-    #     (1 / pt_grad_b ** 2) * pt_grad_a * (
-    #         pt_hess_ab.T +
-    #         pt_hess_bb * grad_g.T
-    #     )
-    # )
     hess_g = (-1 / pt_grad_b) * (
         pt_hess_ab.T * (grad_g + grad_g.T)
         +
@@ -449,8 +438,8 @@ def local_response_curvature_level_set(pt_grad, pt_hess, projection_subspace_of_
     Parameters:
         pt_grad: defining function gradient
         pt_hess: defining function hessian
-        projection_subspace_of_interest: [k, M] matrix. projection from ambient space to a subspace for which we are interested
-          in the curvature. Curvature will be computed for the projection of the subspace of interest
+        projection_subspace_of_interest: [k, M] matrix. projection from ambient space to a subspace for which we
+          are interested in the curvature. Curvature will be computed for the projection of the subspace of interest
           into the isoresponse surface.
         coordinate_transformation: orthogonal [M, M] matrix from input space into a new coordinate system. The last coordinate will
           be used to parametrize the decision boundary
@@ -473,7 +462,6 @@ def local_response_curvature_level_set(pt_grad, pt_hess, projection_subspace_of_
         # since the first projection cancels with the transposed projection that is part of the restricted metric.
         shape_operator = torch.matmul(torch.matmul(projection_from_isosurface, shape_operator), projection_from_isosurface.T)
     principal_curvatures, principal_directions = get_principal_curvatures(shape_operator)
-    ## TODO: Verify with MK that it is ok to do this projection post-sorting
     # we need to norm the directions wrt to the metric, not the canonical scalar product
     if projection_subspace_of_interest is not None:
         _metric_tensor = torch.matmul(torch.matmul(projection_from_isosurface, metric_tensor), projection_from_isosurface.T)
