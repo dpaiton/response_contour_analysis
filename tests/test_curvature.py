@@ -43,9 +43,10 @@ def value_grad_hess(f, point, dtype):
 #    return (x[:-1] ** 2) / (a ** 2) - x[-1] ** 2 / c ** 2
 
 
-#@pytest.mark.parametrize('curve_func', ['moosavi', 'golden', 'lee_graph']) # the first one will fail
-@pytest.mark.parametrize('curve_func', ['golden', 'lee_graph'])
+@pytest.mark.parametrize('curve_func', ['moosavi', 'golden', 'lee_graph']) # the first one will fail
 def test_hyperboloid(curve_func):
+    if curve_func == 'moosavi':
+        pytest.skip() # we know this will fail
     a = 1
     c = 3
     f = lambda x: curve_utils.hyperboloid_graph(x[0], x[1], a=a, c=c)
@@ -66,11 +67,12 @@ def test_hyperboloid(curve_func):
     )
 
 
-#@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
-@pytest.mark.parametrize('curve_func', ['lee_level'])
+@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
 @pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
 @pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
 def test_sphere_pc_variance(dimensions, radius, curve_func):
+    if curve_func == 'moosavi':
+        pytest.skip() # we know this will fail
     f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
     #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
     point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
@@ -80,11 +82,12 @@ def test_sphere_pc_variance(dimensions, radius, curve_func):
     assert iso_curvatures.var() < 1e-16
 
 
-#@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
-@pytest.mark.parametrize('curve_func', ['lee_level'])
+@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
 @pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
 @pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
 def test_sphere_pcs(dimensions, radius, curve_func):
+    if curve_func == 'moosavi':
+        pytest.skip() # we know this will fail
     f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
     #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
     point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
@@ -95,11 +98,12 @@ def test_sphere_pcs(dimensions, radius, curve_func):
     np.testing.assert_allclose(np.abs(iso_curvatures), [expected_principal_curvature,]*(dimensions-1))
 
 
-#@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
-@pytest.mark.parametrize('curve_func', ['lee_level'])
+@pytest.mark.parametrize('curve_func', ['moosavi', 'lee_level']) # the first one will fail
 @pytest.mark.parametrize('dimensions', [2, 3, 5, 10])
 @pytest.mark.parametrize('radius', [0.1, 1, 2, 3, 10])
 def test_sphere_gauss(dimensions, radius, curve_func):
+    if curve_func == 'moosavi':
+        pytest.skip() # we know this will fail
     f = QuadraticFunction(np.ones(dimensions)).to(DEVICE)
     #point = torch.tensor(np.hstack((np.zeros(dimensions-1), [radius]))).to(DEVICE)
     point = torch.tensor(np.ones(dimensions) / np.sqrt(dimensions) * radius).to(DEVICE)
