@@ -43,6 +43,21 @@ def remap_target_to_coordinate(num_vals, target):
     return coordinate
 
 
+def remap_contrast_to_coordinate(contrast, coordinate_min, coordinate_max):
+    """
+    Map contrast from [0, 1] (inclusive) to a value between coordinate_min and coordinate_max
+    Parameters:
+        contrast [float] between 0 and 1, indicates the desired portion of the maximum data vector length
+        coordinate_min [float] between 0 and 1, indicates the origin point of the data vector
+        coordiante_max [float] between 0 and 1, indicates the end-point of the data vector (must be > coordiante_min)
+    Outputs:
+        coordinate [float] end point for the contrast adjusted data vector
+            The vector origin will still be the coordinate_min parameter
+    """
+    coordinate = coordinate_min + (contrast * (coordinate_max - coordinate_min))
+    return coordinate
+
+
 def iso_response_curvature_poly_fits(activations, target, target_is_act=True, yx_scale=[1, 1]):
     """
     Parameters:

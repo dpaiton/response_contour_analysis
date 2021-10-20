@@ -318,7 +318,7 @@ def plot_contours(ax, activity, yx_pts, yx_range, proj_vects=None, num_levels=10
     return contsf
 
 
-def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, arrowprops=None, vmin=None, vmax=None):
+def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, arrowprops=None, cmap=None, vmin=None, vmax=None):
     """
     ax [matplotlib axis]
     images [np.ndarray] of shape [num_images_per_edge, num_images_per_edge, channels, height, weidth] images for each mesh point
@@ -338,8 +338,8 @@ def overlay_image(ax, images, y_pos, x_pos, yx_range, offset, arrowprops=None, v
     width_ratio = images.shape[4] / np.maximum(*images.shape[3:])
     inset_height = 0.35 * height_ratio
     inset_width = 0.35 * width_ratio
-    arr_img = np.squeeze(images[image_y_pos, image_x_pos, ...])
-    imagebox = OffsetImage(arr_img, zoom=0.75, cmap='Gray')
+    arr_img = np.squeeze(images[image_y_pos, image_x_pos, ...].transpose((1,2,0)))
+    imagebox = OffsetImage(arr_img, zoom=0.75, cmap=cmap)
     img = imagebox.get_children()[0]
     img.set_clim(vmin=vmin, vmax=vmax)
     imagebox.image.axes = ax
