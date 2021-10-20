@@ -68,11 +68,22 @@ def l2_normalize(array):
     """
     Convert input to a vector, and then divide it by its l2 norm.
     Parameters:
-        array [ np.ndarray] vector with shape [vector_length,].
+        array [np.ndarray or torch.tensor] vector with shape [vector_length,].
             It can also be a 2D image, which will first be vectorized
     Outputs:
-        array [np.ndarray] as same shape as the input and with l2-norm = 1
+        array [same type as input] as same shape as the input and with l2-norm = 1
     """
+    if type(array) == torch.Tensor:
+        return torch_l2_normalize(array)
+    elif type(array) == np.ndarray:
+        return numpy_l2_normalize(array)
+    else:
+        assert False, (
+            f'ERROR: dataset_generation: input array type must be np.ndarray or torch.Tensor, not {type(array)}.')
+
+
+def numpy_l2_normalize(array):
+    """ see l2_normalize() """
     original_shape = array.shape
     vector = array.reshape(array.size)
     vector = vector / np.linalg.norm(vector)
@@ -82,14 +93,7 @@ def l2_normalize(array):
 
 
 def torch_l2_normalize(array):
-    """
-    Convert input to a vector, and then divide it by its l2 norm.
-    Parameters:
-        array [torch tensor] vector with shape [vector_length,].
-            It can also be a 2D image, which will first be vectorized
-    Outputs:
-        array [torch tensor] as same shape as the input and with l2-norm = 1
-    """
+    """ see l2_normalize() """
     original_shape = array.shape
     vector = array.reshape(-1)
     vector = vector / torch.linalg.norm(vector)
@@ -103,13 +107,37 @@ def define_plane(target_vector, comp_vector):
     Perform a single step of the Gram-Schmidt process
         https://en.wikipedia.org/wiki/Gram-Schmidt_process
     Parameters:
-        target_vector [np.ndarray] vector with shape [vector_length,]
-        comp_vector [np.ndarray] vector with shape [vector_length,]
+        target_vector [np.ndarray or torch.Tensor] vector with shape [vector_length,]
+        comp_vector [np.ndarray or torch.Tensor] vector with shape [vector_length,]
     Outputs:
-        orth_normed [np.ndarray] column vector with shape [vector_length,] that is orthogonal to target_vector and has unit norm
+        orth_normed [same type as input] column vector with shape [vector_length,] that is orthogonal to target_vector and has unit norm
     """
-    t_normed = np.squeeze(l2_normalize(target_vector))
-    c_normed = np.squeeze(l2_normalize(comp_vector))
+    assert type(target_vector) == type(comp_vector), (
+        'ERROR: dataset_generation: input arguments must be of the same type')
+    if type(target_vector) == torch.Tensor:
+        return torch_define_plane(target_vector, comp_vector)
+    elif type(target_vector) == np.ndarray:
+        return numpy_define_plane(target_vector, comp_vector)
+    else:
+        assert False, (
+            f'ERROR: dataset_generation: input types must be np.ndarray or torch.Tensor, not {type(target_vector)}.')
+
+
+def torch_define_plane(target_vector, comp_vector):
+    """ see define_plane() """
+    t_normed = torch.squeeze(torch_l2_normalize(target_vector))
+    c_normed = torch.squeeze(torch_l2_normalize(comp_vector))
+    if torch.all(t_normed == c_normed):
+        print('ERROR: From dataset_generation/gram_schmidt.py: input target vector and comp vector are equal and must be different.')
+        import IPython; IPython.embed(); raise SystemExit
+    orth_normed = torch_gram_schmidt(t_normed, c_normed)
+    return t_normed, orth_normed
+
+
+def numpy_define_plane(target_vector, comp_vector):
+    """ see define_plane() """
+    t_normed = np.squeeze(numpy_l2_normalize(target_vector))
+    c_normed = np.squeeze(numpy_l2_normalize(comp_vector))
     if np.all(t_normed == c_normed):
         print('ERROR: From dataset_generation/gram_schmidt.py: input target vector and comp vector are equal and must be different.')
         import IPython; IPython.embed(); raise SystemExit
@@ -127,7 +155,30 @@ def gram_schmidt(target_normed, comp_normed):
     Outputs:
         orth_normed [np.ndarray] l2 normalized vector with shape [vector_length,] that is orthogonal to target_vector
     """
-    orth_vector = comp_normed - np.dot(comp_normed[:, None].T, target_normed[:, None]) * target_normed
+    assert type(target_normed) == type(comp_normed), (
+        'ERROR: dataset_generation: input arguments must be of the same type')
+    if type(target_normed) == torch.Tensor:
+        return torch_gram_schmidt(target_normed, comp_normed)
+    elif type(target_normed) == np.ndarray:
+        return numpy_gram_schmidt(target_normed, comp_normed)
+    else:
+        assert False, (
+            f'ERROR: dataset_generation: input types must be np.ndarray or torch.Tensor, not {type(target_normed)}.')
+
+
+def torch_gram_schmidt(target_normed, comp_normed):
+    """ see gram_schmidt() """
+    orth_vector = comp_normed - (comp_normed[:, None].T @ target_normed[:, None]) * target_normed
+    orth_norm = torch.linalg.norm(orth_vector)
+    if orth_norm == 0:
+        print('WARNING: From dataset_generation/gram_schmidt.py: norm of orthogonal vector is 0.')
+    orth_normed = torch.squeeze((orth_vector / orth_norm).T) # normalize & transpose to be a row vector
+    return orth_normed
+
+
+def numpy_gram_schmidt(target_normed, comp_normed):
+    """ see gram_schmidt() """
+    orth_vector = comp_normed - (comp_normed[:, None].T @ target_normed[:, None]) * target_normed
     orth_norm = np.linalg.norm(orth_vector)
     if orth_norm == 0:
         print('WARNING: From dataset_generation/gram_schmidt.py: norm of orthogonal vector is 0.')
@@ -147,7 +198,13 @@ def get_proj_matrix(target_vector, comp_vector):
         projection_matrix [np.ndarray] of shape [2, vector_length] for projecting data into and out of pixel space
     """
     normed_target_vector, orth_vector = define_plane(target_vector, comp_vector)
-    proj_matrix = np.stack([normed_target_vector, orth_vector], axis=0)
+    if type(normed_target_vector) == torch.Tensor:
+        proj_matrix = torch.stack([normed_target_vector, orth_vector], axis=0)
+    elif type(normed_target_vector) == np.ndarray:
+        proj_matrix = np.stack([normed_target_vector, orth_vector], axis=0)
+    else:
+        assert False, (
+            f'ERROR: dataset_generation: input types must be np.ndarray or torch.Tensor, not {type(target_vector)}.')
     return proj_matrix
 
 
@@ -161,7 +218,8 @@ def project_data(proj_matrix, datapoints, image_scale=1.0):
         proj_datapoints [np.ndarray] of shape [num_datapoints, 2] projected data
     """
     num_images, data_length = datapoints.shape
-    proj_datapoints = np.dot(datapoints / image_scale, proj_matrix.T).astype(np.float32)
+    proj_datapoints = (datapoints / image_scale) @ proj_matrix.T
+    #proj_datapoints = np.dot(datapoints / image_scale, proj_matrix.T).astype(np.float32)
     return proj_datapoints
 
 
@@ -513,7 +571,6 @@ def hilbert_amplitude(data, padding=None):
             default is the closest power of 2 of maximum(num_rows, num_cols)
     Outputs:
         envelope: [np.ndarray] same shape as data, contains Hilbert envelope
-    TODO: Bug when num_data = 1
     """
     cart2pol = lambda x,y: (np.arctan2(y,x), np.hypot(x, y))
     num_data, num_rows, num_cols = data.shape
@@ -538,9 +595,9 @@ def hilbert_amplitude(data, padding=None):
     (mesh_fx, mesh_fy) = np.meshgrid(freqsx, freqsy)
     (theta, r) = cart2pol(mesh_fx, mesh_fy)
     for data_idx in range(num_data):
-        # Grab single datapoint
-        datapoint = (data - np.mean(data, axis=0, keepdims=True))[data_idx, ...]
-        # Convert datapoint into DC-centered Fourier domain
+        # Grab single DC-centered datapoint
+        datapoint = (data - np.mean(data, axis=(1,2), keepdims=True))[data_idx, ...]
+        # Convert datapoint into Fourier domain
         f_datapoint = np.fft.fftshift(np.fft.fft2(datapoint, [Ny, Nx]))
         f_data[data_idx, ...] = f_datapoint
         # Find indices of the peak amplitude
