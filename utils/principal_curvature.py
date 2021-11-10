@@ -350,6 +350,25 @@ def get_shape_operator_level_set(pt_grad, pt_hess, coordinate_transformation=Non
     return shape_operator, embedding_differential, metric_tensor
 
 
+def get_shape_operator_poole(pt_grad, pt_hess):
+    """
+    Adapted from descriptions given in:
+    B Poole, S Lahiri, M Raghu, J Sohl-Dickstein, S Ganguli (2016) - Exponential Expressivity in Deep Neural Networks Through Transient Chaos
+    """
+    device = pt_grad.device
+    dtype = pt_grad.dtype
+    grad_scale = torch.linalg.norm(pt_grad)
+    normed_grad = pt_grad / grad_scale
+    identity_matrix = torch.eye(len(pt_grad), dtype=dtype).to(device)
+    projection_operator = identity_matrix - torch.matmul(normed_grad, normed_grad.T)
+    norm_constant = 1 / grad_scale
+    shape_operator = norm_constant * torch.matmul(
+        projection_operator,
+        torch.matmul(pt_hess, projection_operator.T)
+    )
+    return shape_operator
+
+
 def get_shape_operator_moosavi(pt_grad, pt_hess):
     """
     Adapted from descriptions given in:
@@ -477,7 +496,7 @@ def local_response_curvature_level_set(pt_grad, pt_hess, projection_subspace_of_
     return shape_operator, principal_curvatures, principal_directions
 
 
-def local_response_curvature_alternates(pt_grad, pt_hess, so_type='moosavi'):
+def local_response_curvature_alternates(pt_grad, pt_hess, so_type='lee_level'):
     """
     Alternative published methods for computing local response curvature.
     if so_type == 'moosavi', then shape operator is computed using descriptions from:
@@ -495,6 +514,8 @@ def local_response_curvature_alternates(pt_grad, pt_hess, so_type='moosavi'):
         shape_operator = get_shape_operator_moosavi(pt_grad, pt_hess)
     elif so_type.lower() == 'golden':
         shape_operator = get_shape_operator_golden(pt_grad, pt_hess)
+    elif so_type.lower() == 'poole':
+        shape_operator = get_shape_operator_poole(pt_grad, pt_hess)
     elif so_type.lower() == 'lee_level':
         shape_operator = get_shape_operator_level_set(pt_grad, pt_hess)[0]
     elif so_type.lower() == 'lee_graph':
