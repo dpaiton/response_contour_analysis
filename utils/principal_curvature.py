@@ -354,18 +354,14 @@ def get_shape_operator_poole(pt_grad, pt_hess):
     """
     Adapted from descriptions given in:
     B Poole, S Lahiri, M Raghu, J Sohl-Dickstein, S Ganguli (2016) - Exponential Expressivity in Deep Neural Networks Through Transient Chaos
+    code: https://github.com/ganguli-lab/deepchaos
     """
-    device = pt_grad.device
-    dtype = pt_grad.dtype
+    pt_grad = pt_grad.squeeze(); pt_hess = pt_hess.squeeze()
     grad_scale = torch.linalg.norm(pt_grad)
     normed_grad = pt_grad / grad_scale
-    identity_matrix = torch.eye(len(pt_grad), dtype=dtype).to(device)
-    projection_operator = identity_matrix - torch.matmul(normed_grad, normed_grad.T)
-    norm_constant = 1 / grad_scale
-    shape_operator = norm_constant * torch.matmul(
-        projection_operator,
-        torch.matmul(pt_hess, projection_operator.T)
-    )
+    normed_hess = pt_hess / grad_scale
+    projected_hess = normed_hess - np.outer(normed_grad, np.dot(normed_grad, normed_hess))
+    shape_operator = projected_hess - np.outer(np.dot(projected_hess, normed_grad), normed_grad)
     return shape_operator
 
 
