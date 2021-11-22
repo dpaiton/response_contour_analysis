@@ -360,8 +360,8 @@ def get_shape_operator_poole(pt_grad, pt_hess):
     grad_scale = torch.linalg.norm(pt_grad)
     normed_grad = pt_grad / grad_scale
     normed_hess = pt_hess / grad_scale
-    projected_hess = normed_hess - np.outer(normed_grad, np.dot(normed_grad, normed_hess))
-    shape_operator = projected_hess - np.outer(np.dot(projected_hess, normed_grad), normed_grad)
+    projected_hess = normed_hess - torch.outer(normed_grad, torch.matmul(normed_grad, normed_hess))
+    shape_operator = projected_hess - torch.outer(torch.matmul(projected_hess, normed_grad), normed_grad)
     return shape_operator
 
 
@@ -502,6 +502,9 @@ def local_response_curvature_alternates(pt_grad, pt_hess, so_type='lee_level'):
     
     and if so_type == 'golden', then the shape operator is computed from:
         JR Golden, KP Vilankar, DJ Field (2019) - Selective and Invariant Features of Neural Response Surfaces Measured with Principal Curvature
+
+    and if so_type == 'poole', then the shape operator is computed from:
+        B Poole, S Lahiri, M Raghu, J Sohl-Dickstein, S Ganguli (2016) - Exponential Expressivity in Deep Neural Networks Through Transient Chaos
     
     and if so_type == 'lee_level' or 'lee_graph', then operator is computed from:
         DM Paiton, D Schultheiss, M Kümmerer, Z Cranko, M Bethge (2021) - The Geometry of Adversarial Subspaces
